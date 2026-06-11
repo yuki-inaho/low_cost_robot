@@ -1,0 +1,31 @@
+part: follower_shoulder_to_elbow
+intent: connect the XL430 shoulder joint to the downstream servo/link (the original
+  STEP PRODUCT name is literally "XL430 to XL330 new connector")
+features:
+  - name: upstream_servo_mount
+    type: servo_mount
+    servo: XL430-W250-T
+    preserves: [output_axis, screw_pattern, body_clearance]
+    constraints: {clearance_mm: 0.5, wall_mm: 4.0, screw: M2}
+  - name: downstream_servo_mount
+    type: servo_mount
+    servo: XL330-M288-T          # change to XL430-W250-T to perform the swap
+    preserves: [output_axis, screw_pattern, body_clearance]
+    constraints: {clearance_mm: 0.5, wall_mm: 4.0, screw: M2}
+  - name: link_beam
+    type: structural_beam
+    preserves: [joint_distance]
+    constraints: {min_wall_mm: 2.5, joint_distance_mm: 132.0}
+  - name: motor_body_bore
+    type: bore
+    preserves: [output_axis]
+    constraints: {diameter_mm: 26.0}
+  - name: horn_idler_bore
+    type: bore
+    preserves: [output_axis]
+    constraints: {diameter_mm: 10.0}
+tests:
+  - axes_collinear            # output axis == idler axis
+  - hole_pattern_match        # mount holes match the servo spec
+  - envelope_clearance        # servo body fits with clearance
+  - min_wall_thickness        # >= 2.5 mm (manufacturability)
