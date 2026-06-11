@@ -145,19 +145,25 @@ def group_cylinder_holes(cylinders: list[dict],
     ]
 
 
-def brep_probe(path: Path, screw_bands=DEFAULT_SCREW_BANDS) -> dict:
-    if not brep_available():
-        return {"file": str(path), "name": Path(path).stem, "available": False}
+def _open_solids(path: Path):
     import cadquery as cq
+    return cq.importers.importStep(str(path)).solids().vals()
+
+
+def _bbox_minmax(solids) -> dict:
+    bb = solids[0].BoundingBox()                 # bbox over ALL solids (wp.val() = first only)
+    for s in solids[1:]:
+        bb.add(s.BoundingBox())
+    return {"xmin": round(bb.xmin, 3), "xmax": round(bb.xmax, 3),
+            "ymin": round(bb.ymin, 3), "ymax": round(bb.ymax, 3),
+            "zmin": round(bb.zmin, 3), "zmax": round(bb.zmax, 3),
+            "xlen": round(bb.xlen, 3), "ylen": round(bb.ylen, 3), "zlen": round(bb.zlen, 3)}
+
+
+def _raw_cylinders(solids, screw_bands) -> tuple[list[dict], int, int]:
+    """Per-face cylinders with ABSOLUTE axis points (placement-truth, not collapsed)."""
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
-
-    wp = cq.importers.importStep(str(path))
-    solids = wp.solids().vals()
-    if not solids:                       # surface-only STEP — degrade, don't crash
-        return {"file": str(path), "name": Path(path).stem, "available": True,
-                "solids": 0, "faces": 0, "planes": 0, "cylindrical_faces": 0,
-                "bbox_mm": None, "hole_families": []}
     cylinders, planes, faces = [], 0, 0
     for solid in solids:
         for face in solid.Faces():
@@ -167,8 +173,7 @@ def brep_probe(path: Path, screw_bands=DEFAULT_SCREW_BANDS) -> dict:
             if t == GeomAbs_Plane:
                 planes += 1
             elif t == GeomAbs_Cylinder:
-                cyl = ad.Cylinder()
-                ax, loc, d = cyl.Axis(), cyl.Axis().Location(), cyl.Axis().Direction()
+                cyl = ad.Cylinder(); loc = cyl.Axis().Location(); d = cyl.Axis().Direction()
                 r = float(cyl.Radius())
                 cylinders.append({
                     "radius": round(r, 3), "diameter": round(2 * r, 3),
@@ -176,15 +181,44 @@ def brep_probe(path: Path, screw_bands=DEFAULT_SCREW_BANDS) -> dict:
                     "axis_pt": _round3((loc.X(), loc.Y(), loc.Z())),
                     "screw": classify_screw(2 * r, screw_bands),
                 })
-    # bbox over ALL solids (wp.val() would only cover the first).
-    bb = solids[0].BoundingBox()
-    for s in solids[1:]:
-        bb.add(s.BoundingBox())
-    family_summary = group_cylinder_holes(cylinders, screw_bands)
+    return cylinders, faces, planes
+
+
+def brep_probe(path: Path, screw_bands=DEFAULT_SCREW_BANDS) -> dict:
+    if not brep_available():
+        return {"file": str(path), "name": Path(path).stem, "available": False}
+    solids = _open_solids(path)
+    if not solids:                       # surface-only STEP — degrade, don't crash
+        return {"file": str(path), "name": Path(path).stem, "available": True,
+                "solids": 0, "faces": 0, "planes": 0, "cylindrical_faces": 0,
+                "bbox_mm": None, "hole_families": []}
+    cylinders, faces, planes = _raw_cylinders(solids, screw_bands)
+    bb = _bbox_minmax(solids)
     return {
         "file": str(path), "name": Path(path).stem, "available": True,
         "solids": len(solids), "faces": faces, "planes": planes,
         "cylindrical_faces": len(cylinders),
-        "bbox_mm": [round(bb.xlen, 3), round(bb.ylen, 3), round(bb.zlen, 3)],
-        "hole_families": family_summary,
+        "bbox_mm": [bb["xlen"], bb["ylen"], bb["zlen"]],
+        "hole_families": group_cylinder_holes(cylinders, screw_bands),
+    }
+
+
+def cylinder_faces(path: Path, screw_bands=DEFAULT_SCREW_BANDS) -> dict:
+    """Inspection view: bbox (min/max), every cylindrical face with its ABSOLUTE
+    center, plus the collapsed family summary. Use this to answer placement
+    questions ('is the bolt hole on the frame?') that the canonicalized
+    `hole_families` centers cannot, without writing a one-off script."""
+    if not brep_available():
+        return {"file": str(path), "name": Path(path).stem, "available": False}
+    solids = _open_solids(path)
+    if not solids:
+        return {"file": str(path), "name": Path(path).stem, "available": True,
+                "solids": 0, "bbox": None, "cylinders": [], "hole_families": []}
+    cylinders, faces, planes = _raw_cylinders(solids, screw_bands)
+    return {
+        "file": str(path), "name": Path(path).stem, "available": True,
+        "solids": len(solids), "faces": faces, "planes": planes,
+        "bbox": _bbox_minmax(solids),
+        "cylinders": sorted(cylinders, key=lambda c: (c["diameter"], c["axis_pt"])),
+        "hole_families": group_cylinder_holes(cylinders, screw_bands),
     }

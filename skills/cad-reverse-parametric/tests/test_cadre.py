@@ -94,6 +94,27 @@ def test_feature_descriptor_shape():
     assert d["cylindrical_axes"][0]["screw"] == "M2"
 
 
+def test_cylinder_faces_recovers_holes_from_generated_step(tmp_path):
+    # Generate a plate with 4 known holes, then recover them via B-rep inspection.
+    from cadre import cylinder_faces, brep_available
+    if not brep_available():
+        import pytest as _pt
+        _pt.skip("cadquery/OCP not available")
+    centers = [(0, 8), (0, -8), (8, 0), (-8, 0)]
+    plate = parametric.adapter_plate(centers, hole_diameter=2.4,
+                                     plate_w=30, plate_h=30, thickness=4)
+    step = tmp_path / "plate.step"
+    parametric.export(plate, tmp_path / "plate", formats=("step",))
+    r = cylinder_faces(step)
+    assert r["available"] and r["solids"] == 1
+    assert r["bbox"]["xlen"] == pytest.approx(30, abs=0.1)
+    holes = [c for c in r["cylinders"] if c["screw"] == "M2"]
+    assert len(holes) == 4                       # 4 absolute hole faces recovered
+    # absolute centers match the design pattern (±8 cross), not collapsed to origin
+    xy = sorted((round(c["axis_pt"][0]), round(c["axis_pt"][1])) for c in holes)
+    assert xy == [(-8, 0), (0, -8), (0, 8), (8, 0)]
+
+
 def test_equivalence_gate_distinguishes_same_vs_different():
     with tempfile.TemporaryDirectory() as td:
         d = Path(td)

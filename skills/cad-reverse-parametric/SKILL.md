@@ -39,7 +39,10 @@ Two layers. Keep them separate; never let domain terms leak into the core.
   - `impact.py` — `analyze_tree` orchestrator; classifier is **injected**
     (`RuleClassifier`), dependency-inverted.
   - `report.py` — CSV + Markdown writers (title/intro injected).
-  - `cli.py` — `python -m cadre.cli {probe,equiv,scaffold}`, works on ANY file.
+  - `cli.py` — `python -m cadre.cli {probe,inspect,equiv,scaffold}`, works on ANY
+    file. `inspect` dumps bbox (min/max) + every cylindrical face with its
+    ABSOLUTE center — use it to answer placement questions ("is the bolt hole on
+    the frame?") that the canonicalized `hole_families` centers can't.
 - **`studies/<name>/` — specialized layer.** Thin. Supplies the domain: specs,
   keyword policy, classifier rules, drivers. `studies/xl430_lowcost/` targets the
   Dynamixel XL330→XL430 swap on this repo's `hardware/` tree.
@@ -85,7 +88,10 @@ one through-hole or two coaxial blind holes, so the true hole count sits in
 5. **Interference-check** the new envelope proxy against neighbours.
 
 See `references/workflow.md` for the full procedure and `references/servo_specs.md`
-for the XL330/XL430 driver values (verify against the ROBOTIS e-Manual).
+for the XL330/XL430 driver values (verify against the ROBOTIS e-Manual). To
+visually inspect a STEP (reconstruction or original) in the browser CAD chili3d —
+including how to rotate/pan/zoom and drive it headlessly — see
+`references/chili3d_viewing.md`.
 
 ## Run an impact study
 

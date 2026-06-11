@@ -63,6 +63,31 @@ for the related work (DeepCAD, CAD-Recode, UV-Net, SolidGen, Vitruvion, …) and
 why fully-automatic STEP→clean-parametric is still hard (intent isn't in the
 geometry; constraints are hard; B-rep topology is unstable).
 
+## Session 2 (browser viewing + placement verification)
+
+Struggles → fixes that became skill features:
+- **Canonical centers lose absolute position.** The M-1 perp-foot fix made
+  `hole_families.centers` great for *matching* but unable to answer "is this bolt
+  hole on the frame / where is it?" — I had to write a throwaway script. Fixed by
+  adding `cylinder_faces()` + `cadre.cli inspect`: bbox min/max + every face's
+  ABSOLUTE center + the family summary. Verified on the real connector
+  (M2 cross at ±8 around the φ10 bore inside the φ26 horn seat, on the wall ring).
+- **No B-rep integration test.** Added one: generate a holed plate → recover the
+  4 holes' absolute centers. Closes the long-standing gap.
+- **chili3d exposes no JS app handle** (`window` has no app/view) — 3D geometry is
+  canvas/WASM, not DOM. So geometry questions must go through B-rep on the STEP,
+  not the browser; the DOM only yields the part-name tree.
+- **playwright-cli `eval` misparses `=>`** — wrap as `() => (...)`. Documented in
+  `chili3d_viewing.md`.
+- **playwright-cli sessions collide across projects** (a shared `default` picked up
+  another project's `sam2-cvat` profile). Use a dedicated `-s=<name>` session.
+- **Visual verification recipe that worked:** load the *isolated* part (not the
+  assembly — neighbours occlude + wireframe see-through confuses), snap to an axis
+  via the gizmo, screenshot, and cross-check the circles/holes against
+  `cadre.cli inspect` numbers. A "counterbore that looks clipped" was just the
+  φ26 seat spanning the full 26 mm thickness + Solid+Wireframe see-through — not a
+  defect.
+
 ## Improvement backlog (next iterations)
 
 - [x] Design-intent layer + functional checks + LLM descriptor (intent/checks/descriptor).
@@ -71,7 +96,10 @@ geometry; constraints are hard; B-rep topology is unstable).
       against solid walls (count boundary crossings) → true physical hole count.
 - [ ] Independent 2D cross-check: reuse the sandbox `export_dxf` + `parse_dxf` to
       confirm hole centers from sections against the 3D B-rep families.
-- [ ] Visual diff for the equivalence gate via the sandbox `OpenSCADRenderer`.
+- [x] Visual inspection of STEP (reconstruction + original) in browser CAD chili3d,
+      driven headlessly via playwright-cli — see `chili3d_viewing.md` (incl. the
+      Node ≥20.11 gotcha and rotate/pan/zoom controls).
+- [ ] Automated visual diff (overlay original vs reconstruction) for the gate.
 - [ ] `min_wall_thickness` check (medial-axis / ray sampling) — currently a named
       test in intent YAML but not yet implemented in `cadre.checks`.
 - [ ] Replace the assembly size heuristic with a real check (count
