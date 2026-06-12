@@ -1,0 +1,7 @@
+Context: local project skill support for recurring Codex-to-Claude review loops and local agent generated files.
+
+Changes: add skills/claude-tmux-review-bridge with reusable workflow lessons from the Chili3D Measure Select review, including Claude Code tmux startup, agmsg use, /copy or file-based long-output capture, finding triage, retesting, and git notes. .gitignore now excludes .agents/, .codex/, .claude/, and .playwright-cli/ project-local generated state.
+
+Validation: skill-creator quick_validate passed. Installed copy placed under .codex/skills for project-local use; agmsg team smoke succeeded in both directions.
+
+Operational tip: prefer Claude /copy or file output over tmux capture-pane for long review responses; run agmsg scripts sequentially to avoid lock/config races.
