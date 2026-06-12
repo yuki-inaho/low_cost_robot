@@ -3,3 +3,7 @@
 __pycache__/
 .venv/
 .serena/
+.agents/
+.codex/
+.claude/
+.playwright-cli/
