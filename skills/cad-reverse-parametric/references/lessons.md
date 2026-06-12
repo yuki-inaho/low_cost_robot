@@ -124,6 +124,14 @@ XL430 migration workdoc. Findings worth feeding back into the skills:
   spend the auditor's independent eye on *substantive* artifacts (the 2 real swaps +
   the regression); peripheral NO-OP / not-applicable parts can be coordinator-verified
   (tests + md5 identity) when delegation is flaky.
+- **Section measurement is a bug detector.** The cq `section()`/BREP ray measurement done
+  "merely" to confirm the C-B4 floor (workdoc_Jun12 completion pass) exposed two REAL
+  implementation bugs in `shoulder_to_elbow.py`: a sign error in the wall placement
+  (`sx*wx - sx*wall_t/2` put the -X wall at x=-13.5 instead of the symmetric ±19, leaving
+  its φ26 seat ~outside the material) and the counterbore being cut from a nominal plane
+  rather than each wall's actual outer face. RULE: actually *measuring* a dimensional DoD
+  (instead of trusting the parameter arithmetic, wall−depth=floor) is implementation
+  verification, not box-ticking — budget for it on every min-wall / seat-depth claim.
 
 ## Improvement backlog (next iterations)
 
