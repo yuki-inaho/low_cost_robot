@@ -17,6 +17,7 @@ inject its directory onto sys.path here (a conftest would also work).
 """
 import sys
 import importlib.util
+import math
 from pathlib import Path
 
 import pytest
@@ -116,6 +117,62 @@ def _export_step(model):
     stem = Path(td) / "recon"
     parametric.export(model, stem, formats=("step",))
     return Path(f"{stem}.step")
+
+
+def _extension_features(mod):
+    intent = mod.PartIntent.load(mod.INTENT)
+    return {f.name: f for f in intent.features}
+
+
+def _extension_profile_contains(feat, y: float, z: float) -> bool:
+    beam = feat["link_beam"].constraints
+    y0 = -73.046
+    y1 = y0 + float(beam["link_length_y_mm"])
+    in_beam = y0 <= y <= y1 and 0.0 <= z <= 23.0
+    flange = feat.get("upstream_round_flange")
+    if flange is None:
+        return in_beam
+
+    fc = flange.constraints
+    cy, cz = [float(v) for v in fc["center_yz_mm"]]
+    ry, rz = float(fc["radius_y_mm"]), float(fc["radius_z_mm"])
+    in_flange = ((y - cy) / ry) ** 2 + ((z - cz) / rz) ** 2 <= 1.0 + 1e-9
+    return in_beam or in_flange
+
+
+def _extension_feature_specs(feat):
+    horn = feat["upstream_horn_mount"].constraints
+    idler = feat["idler_bores"].constraints
+    specs = []
+    for y, z in horn["diamond_centers_yz_mm"]:
+        specs.append(("tap", float(y), float(z), float(horn["hole_diameter_mm"]) / 2.0))
+    for y, z in idler["centers_yz_mm"]:
+        specs.append(("idler", float(y), float(z), float(idler["diameter_mm"]) / 2.0))
+    return specs
+
+
+def _assert_functional_family(report, label, diameter, expected_centers, expected_axes):
+    from cadre import checks
+
+    families = [
+        f for f in report["hole_families"]
+        if abs(float(f["diameter"]) - diameter) <= 0.05
+        and tuple(round(x, 1) for x in f["axis_dir"]) == (1.0, 0.0, 0.0)
+    ]
+    assert len(families) == 1, (
+        f"{label}: expected one functional family d={diameter}, got {families}; "
+        f"all_families={report['hole_families']}"
+    )
+    family = families[0]
+    match = checks.hole_pattern_match(expected_centers, family["centers"], tol_mm=0.15)
+    assert family["axes"] == expected_axes and match.passed, (
+        f"{label}: axes/centers changed; expected_axes={expected_axes} "
+        f"actual_axes={family['axes']} centerNN={match.value} faces={family['faces']} "
+        f"expected_centers={expected_centers} actual_centers={family['centers']}"
+    )
+    assert family["faces"] >= family["axes"], (
+        f"{label}: face count should remain auditable; family={family}"
+    )
 
 
 def test_shoulder_to_elbow_builds():
@@ -329,14 +386,134 @@ def test_elbow_to_wrist_extension_family_match():
     assert ok, "C-A2 mismatch:\n  " + "\n  ".join(report)
 
 
+def test_elbow_to_wrist_extension_upstream_flange_min_edge_distance():
+    """The upstream support profile must contain a safety circle around each cut.
+
+    This is intentionally a 2D YZ profile test: the upstream support is symmetric
+    across X, while the blind seats are still cut from the existing +X source face.
+    """
+    mod = _load_part_module("elbow_to_wrist_extension")
+    feat = _extension_features(mod)
+    min_wall = float(feat["link_beam"].constraints["min_wall_mm"])
+    failures = []
+    samples = 144
+    for kind, cy, cz, feature_r in _extension_feature_specs(feat):
+        required_r = feature_r + min_wall
+        misses = []
+        for i in range(samples):
+            a = 2.0 * math.pi * i / samples
+            y = cy + required_r * math.cos(a)
+            z = cz + required_r * math.sin(a)
+            if not _extension_profile_contains(feat, y, z):
+                misses.append((y, z))
+        if misses:
+            beam = feat["link_beam"].constraints
+            y0, y1 = -73.046, -73.046 + float(beam["link_length_y_mm"])
+            rect_margin = min(cy - y0 - feature_r, y1 - cy - feature_r,
+                              cz - feature_r, 23.0 - cz - feature_r)
+            my, mz = misses[0]
+            failures.append(
+                f"{kind} center_yz=({cy:.3f},{cz:.3f}) feature_r={feature_r:.3f} "
+                f"required_radius={required_r:.3f} min_wall_threshold={min_wall:.3f} "
+                f"current_rect_margin={rect_margin:.3f} "
+                f"deficit_vs_threshold={min_wall - rect_margin:.3f} "
+                f"first_outside=({my:.3f},{mz:.3f})"
+            )
+    assert not failures, "upstream flange/support min edge failures:\n  " + "\n  ".join(failures)
+
+    flange = feat.get("upstream_round_flange")
+    if flange is not None:
+        import domain
+        fc = flange.constraints
+        cy, cz = [float(v) for v in fc["center_yz_mm"]]
+        ry, rz = float(fc["radius_y_mm"]), float(fc["radius_z_mm"])
+        solid = mod.make_extension(domain.XL330).val()
+        bb = solid.BoundingBox()
+        assert bb.ymax >= cy + ry - 0.05 and bb.zmin <= cz - rz + 0.05, (
+            "upstream support profile is present in intent but not reflected in geometry; "
+            f"bbox_ymax={bb.ymax:.3f} expected_at_least={cy + ry:.3f} "
+            f"bbox_zmin={bb.zmin:.3f} expected_at_most={cz - rz:.3f}"
+        )
+        probe_x = 0.0
+        solid_failures = []
+        for kind, fy, fz, feature_r in _extension_feature_specs(feat):
+            required_r = feature_r + min_wall
+            for i in range(samples):
+                a = 2.0 * math.pi * i / samples
+                y = fy + required_r * math.cos(a)
+                z = fz + required_r * math.sin(a)
+                if not solid.isInside((probe_x, y, z), 1e-5):
+                    solid_failures.append(
+                        f"{kind} center_yz=({fy:.3f},{fz:.3f}) "
+                        f"required_radius={required_r:.3f} "
+                        f"outside_point=({y:.3f},{z:.3f}) probe_x={probe_x:.3f}"
+                    )
+                    break
+        assert not solid_failures, (
+            "upstream support safety circle is not inside actual solid geometry:\n  "
+            + "\n  ".join(solid_failures)
+        )
+
+
+def test_elbow_to_wrist_extension_functional_families_preserved():
+    """Functional cut families are checked separately from any new outer support profile."""
+    _brep_or_skip()
+    import domain
+    from cadre import cylinder_faces
+
+    mod = _load_part_module("elbow_to_wrist_extension")
+    feat = _extension_features(mod)
+    _, model = _build_via("elbow_to_wrist_extension", "make_extension", domain.XL330)
+    report = cylinder_faces(_export_step(model))
+
+    horn = feat["upstream_horn_mount"].constraints
+    idler = feat["idler_bores"].constraints
+    down = feat["downstream_mount"].constraints
+    expected_diameters = {
+        round(float(horn["hole_diameter_mm"]), 2),
+        round(float(idler["diameter_mm"]), 2),
+        round(float(down["hole_diameter_mm"]), 2),
+    }
+    actual_diameters = {round(float(f["diameter"]), 2) for f in report["hole_families"]}
+    assert actual_diameters <= expected_diameters, (
+        "unexpected cylindrical hole family appeared; "
+        f"expected_diameters={sorted(expected_diameters)} "
+        f"actual_diameters={sorted(actual_diameters)} "
+        f"all_families={report['hole_families']}"
+    )
+    _assert_functional_family(
+        report, "upstream taps", float(horn["hole_diameter_mm"]),
+        [[0.0, float(y), float(z)] for y, z in horn["diamond_centers_yz_mm"]],
+        expected_axes=4,
+    )
+    _assert_functional_family(
+        report, "upstream idler seats", float(idler["diameter_mm"]),
+        [[0.0, float(y), float(z)] for y, z in idler["centers_yz_mm"]],
+        expected_axes=2,
+    )
+    _assert_functional_family(
+        report, "downstream M2 through holes", float(down["hole_diameter_mm"]),
+        [[float(x), float(y), float(z)] for x, y, z in down["mount_centers_mm"]],
+        expected_axes=2,
+    )
+
+
 def test_elbow_to_wrist_extension_link_length_preserved():
-    """C-B5: the link length (Y extent 90.1) is preserved across the swap."""
+    """C-B5: preserve the 90.1mm functional link dimension across the swap.
+
+    The upstream support may intentionally grow the outer bbox in +Y/+Z; this gate
+    pins the configured link length and the downstream/start-side functional extent.
+    """
     _brep_or_skip()
     import domain
     mod = _load_part_module("elbow_to_wrist_extension")
+    feat = _extension_features(mod)
+    link_length = float(feat["link_beam"].constraints["link_length_y_mm"])
     o = _to_trimesh(mod.make_extension(domain.XL330))
     x = _to_trimesh(mod.make_extension(domain.XL430))
-    assert abs(o.bounding_box.extents[1] - 90.1) < 0.2     # orig length preserved
+    assert abs(link_length - 90.1) < 0.001
+    assert abs(o.bounds[0][1] - -73.046) < 0.2
+    assert abs(x.bounds[0][1] - o.bounds[0][1]) < 0.2
     assert abs(x.bounding_box.extents[1] - o.bounding_box.extents[1]) < 0.2
 
 

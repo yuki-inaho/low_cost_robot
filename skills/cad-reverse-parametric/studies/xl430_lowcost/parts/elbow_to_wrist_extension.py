@@ -17,7 +17,11 @@ import cadquery as cq
 
 from cadre import PartIntent
 from cadre.geometry import Component
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_PARTS_DIR = Path(__file__).resolve().parent
+_STUDY_DIR = _PARTS_DIR.parent
+for _p in (_STUDY_DIR, _PARTS_DIR):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 import _partlib as P
 import domain
 
@@ -32,6 +36,7 @@ def make_extension(servo: Component, intent: PartIntent | None = None) -> cq.Wor
     idler = feat["idler_bores"].constraints
     down = feat["downstream_mount"].constraints
     beam = feat["link_beam"].constraints
+    flange = feat.get("upstream_round_flange")
 
     # beam over the bbox; X width grows a touch with the servo so the larger XL430 horn
     # interface clears, but link length (Y 90.1) is PRESERVED.
@@ -42,6 +47,15 @@ def make_extension(servo: Component, intent: PartIntent | None = None) -> cq.Wor
                  centered=(True, False, False))
             .translate((0, -73.046, 0)))
     face_x = float(beam["upstream_face_x_mm"])
+
+    if flange is not None:
+        fc = flange.constraints
+        cy, cz = [float(v) for v in fc["center_yz_mm"]]
+        support = (cq.Workplane("YZ")
+                   .center(cy, cz)
+                   .ellipse(float(fc["radius_y_mm"]), float(fc["radius_z_mm"]))
+                   .extrude(width_x / 2.0, both=True))
+        body = body.union(support)
 
     # upstream: 4x phi1.8 tap diamond (blind into -X from the +X face)
     for (yy, zz) in horn["diamond_centers_yz_mm"]:

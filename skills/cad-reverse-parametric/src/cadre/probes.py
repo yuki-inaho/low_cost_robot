@@ -91,6 +91,10 @@ def _round3(v) -> list[float]:
     return [round(float(x), 3) for x in v]
 
 
+def _round6(v) -> list[float]:
+    return [round(float(x), 6) for x in v]
+
+
 def _canonical_dir(d, tol: float = 1e-6) -> tuple[float, ...]:
     """B-rep cylinder axis sign is arbitrary; canonicalize so ±dir compare equal."""
     dd = list(d)
@@ -221,4 +225,151 @@ def cylinder_faces(path: Path, screw_bands=DEFAULT_SCREW_BANDS) -> dict:
         "bbox": _bbox_minmax(solids),
         "cylinders": sorted(cylinders, key=lambda c: (c["diameter"], c["axis_pt"])),
         "hole_families": group_cylinder_holes(cylinders, screw_bands),
+    }
+
+
+def _curve_type_name(curve_type) -> str:
+    from OCP.GeomAbs import (
+        GeomAbs_Line, GeomAbs_Circle, GeomAbs_Ellipse, GeomAbs_BSplineCurve,
+        GeomAbs_BezierCurve,
+    )
+    return {
+        GeomAbs_Line: "line",
+        GeomAbs_Circle: "circle",
+        GeomAbs_Ellipse: "ellipse",
+        GeomAbs_BSplineCurve: "bspline",
+        GeomAbs_BezierCurve: "bezier",
+    }.get(curve_type, str(int(curve_type)))
+
+
+def _surface_type_name(surface_type) -> str:
+    from OCP.GeomAbs import (
+        GeomAbs_Plane, GeomAbs_Cylinder, GeomAbs_Cone, GeomAbs_Sphere,
+        GeomAbs_Torus, GeomAbs_BSplineSurface, GeomAbs_BezierSurface,
+    )
+    return {
+        GeomAbs_Plane: "plane",
+        GeomAbs_Cylinder: "cylinder",
+        GeomAbs_Cone: "cone",
+        GeomAbs_Sphere: "sphere",
+        GeomAbs_Torus: "torus",
+        GeomAbs_BSplineSurface: "bspline_surface",
+        GeomAbs_BezierSurface: "bezier_surface",
+    }.get(surface_type, str(int(surface_type)))
+
+
+def edge_records(path: Path, indexes: list[int] | None = None,
+                 include_faces: bool = True) -> dict:
+    """List STEP B-rep edges with stable-enough topology metadata.
+
+    Use this after a viewer or measurement tool reports selected edge indexes,
+    lengths, or endpoints. Edge indexes are kernel traversal indexes, so they are
+    best treated as a bridge to confirm against length/coordinate evidence rather
+    than as a persistent cross-export identifier.
+    """
+    if not brep_available():
+        return {"file": str(path), "name": Path(path).stem, "available": False}
+    import cadquery as cq
+    from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cylinder
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+    from OCP.TopExp import TopExp, TopExp_Explorer
+    from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
+    from OCP.TopoDS import TopoDS
+
+    wanted = set(indexes) if indexes is not None else None
+    shape = cq.importers.importStep(str(path)).val().wrapped
+    face_map = None
+    if include_faces:
+        face_map = TopTools_IndexedDataMapOfShapeListOfShape()
+        TopExp.MapShapesAndAncestors_s(shape, TopAbs_EDGE, TopAbs_FACE, face_map)
+
+    records = []
+    exp = TopExp_Explorer(shape, TopAbs_EDGE)
+    idx = 0
+    while exp.More():
+        edge = TopoDS.Edge_s(exp.Current())
+        if wanted is None or idx in wanted:
+            curve = BRepAdaptor_Curve(edge)
+            props = GProp_GProps()
+            BRepGProp.LinearProperties_s(edge, props)
+            first, last = curve.FirstParameter(), curve.LastParameter()
+            rec = {
+                "index": idx,
+                "length": round(float(props.Mass()), 9),
+                "curve_type": _curve_type_name(curve.GetType()),
+                "start": _round6((curve.Value(first).X(), curve.Value(first).Y(),
+                                  curve.Value(first).Z())),
+                "end": _round6((curve.Value(last).X(), curve.Value(last).Y(),
+                                curve.Value(last).Z())),
+            }
+            if curve.GetType() == GeomAbs_Circle:
+                circle = curve.Circle()
+                loc = circle.Location()
+                rec["circle"] = {
+                    "radius": round(float(circle.Radius()), 6),
+                    "center": _round6((loc.X(), loc.Y(), loc.Z())),
+                }
+            if include_faces and face_map is not None and face_map.Contains(edge):
+                faces = []
+                for face_shape in face_map.FindFromKey(edge):
+                    surface = BRepAdaptor_Surface(TopoDS.Face_s(face_shape))
+                    item = {"surface_type": _surface_type_name(surface.GetType())}
+                    if surface.GetType() == GeomAbs_Cylinder:
+                        cyl = surface.Cylinder()
+                        loc = cyl.Axis().Location()
+                        direction = cyl.Axis().Direction()
+                        item["cylinder"] = {
+                            "radius": round(float(cyl.Radius()), 6),
+                            "axis_pt": _round6((loc.X(), loc.Y(), loc.Z())),
+                            "axis_dir": _round6((direction.X(), direction.Y(),
+                                                 direction.Z())),
+                        }
+                    faces.append(item)
+                rec["adjacent_faces"] = faces
+            records.append(rec)
+        idx += 1
+        exp.Next()
+
+    return {
+        "file": str(path),
+        "name": Path(path).stem,
+        "available": True,
+        "edge_count": idx,
+        "edges": records,
+    }
+
+
+def match_edge_lengths(path: Path, lengths: list[float], tolerance: float = 0.05,
+                       limit: int = 5, include_faces: bool = True) -> dict:
+    """Find nearest B-rep edges for measured lengths.
+
+    This is useful when an external viewer reports selected edge lengths but its
+    edge indexes do not directly correspond to the standalone STEP's traversal
+    order. Always combine matches with coordinates and curve/surface type.
+    """
+    rec = edge_records(path, include_faces=include_faces)
+    if not rec.get("available"):
+        return rec
+    edges = rec["edges"]
+    queries = []
+    for q in lengths:
+        ranked = sorted(edges, key=lambda e: abs(float(e["length"]) - q))[:limit]
+        queries.append({
+            "length": q,
+            "tolerance": tolerance,
+            "matches": [
+                {**m, "delta": round(abs(float(m["length"]) - q), 9),
+                 "within_tolerance": abs(float(m["length"]) - q) <= tolerance}
+                for m in ranked
+            ],
+        })
+    return {
+        "file": rec["file"],
+        "name": rec["name"],
+        "available": True,
+        "edge_count": rec["edge_count"],
+        "queries": queries,
     }

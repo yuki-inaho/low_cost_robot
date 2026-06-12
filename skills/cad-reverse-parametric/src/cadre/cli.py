@@ -2,6 +2,8 @@
 
     python -m cadre.cli probe   <file.step|file.stl> [...]
     python -m cadre.cli inspect <file.step>           # bbox + abs hole positions
+    python -m cadre.cli edges   <file.step> [--indexes 1,2,3]
+    python -m cadre.cli edge-match <file.step> --lengths 9.146,2.265
     python -m cadre.cli equiv   <original> <candidate> [--samples N]
     python -m cadre.cli scaffold --w 28.5 --h 46.5 --d 34 --out OUT
 """
@@ -12,7 +14,8 @@ import argparse
 from pathlib import Path
 
 from .probes import (step_text_probe, stl_geometry_probe, brep_probe,
-                     brep_available, cylinder_faces)
+                     brep_available, cylinder_faces, edge_records,
+                     match_edge_lengths)
 from .equivalence import compare, verdict, EquivalenceThresholds
 from .geometry import Envelope
 
@@ -63,6 +66,66 @@ def _equiv(args) -> int:
     return 0
 
 
+def _csv_ints(value: str | None) -> list[int] | None:
+    if not value:
+        return None
+    return [int(x.strip()) for x in value.split(",") if x.strip()]
+
+
+def _csv_floats(value: str) -> list[float]:
+    return [float(x.strip()) for x in value.split(",") if x.strip()]
+
+
+def _edges(args) -> int:
+    r = edge_records(Path(args.file), indexes=_csv_ints(args.indexes),
+                     include_faces=not args.no_faces)
+    if args.json or not r.get("available"):
+        print(json.dumps(r, indent=2, ensure_ascii=False))
+        return 0
+    print(f"{r['name']}  edges={r['edge_count']}")
+    for e in r["edges"]:
+        circ = e.get("circle")
+        cinfo = ""
+        if circ:
+            cinfo = f"  circle R={circ['radius']} center={circ['center']}"
+        faces = e.get("adjacent_faces")
+        finfo = ""
+        if faces:
+            surface_types = ",".join(f["surface_type"] for f in faces)
+            finfo = f"  faces={surface_types}"
+        print(f"  #{e['index']:4d} len={e['length']:10.6f} "
+              f"{e['curve_type']:8s} start={e['start']} end={e['end']}"
+              f"{cinfo}{finfo}")
+    return 0
+
+
+def _edge_match(args) -> int:
+    r = match_edge_lengths(Path(args.file), _csv_floats(args.lengths),
+                           tolerance=args.tolerance, limit=args.limit,
+                           include_faces=not args.no_faces)
+    if args.json or not r.get("available"):
+        print(json.dumps(r, indent=2, ensure_ascii=False))
+        return 0
+    print(f"{r['name']}  edges={r['edge_count']}")
+    for q in r["queries"]:
+        print(f"query len={q['length']:.6f} tol={q['tolerance']}")
+        for m in q["matches"]:
+            mark = "*" if m["within_tolerance"] else " "
+            circ = m.get("circle")
+            cinfo = ""
+            if circ:
+                cinfo = f" circle R={circ['radius']} center={circ['center']}"
+            faces = m.get("adjacent_faces")
+            finfo = ""
+            if faces:
+                surface_types = ",".join(f["surface_type"] for f in faces)
+                finfo = f" faces={surface_types}"
+            print(f"  {mark}#{m['index']:4d} len={m['length']:10.6f} "
+                  f"delta={m['delta']:9.6f} {m['curve_type']:8s} "
+                  f"start={m['start']} end={m['end']}{cinfo}{finfo}")
+    return 0
+
+
 def _scaffold(args) -> int:
     from . import parametric
     env = Envelope(args.w, args.h, args.d)
@@ -84,6 +147,25 @@ def main(argv: list[str]) -> int:
 
     i = sub.add_parser("inspect"); i.add_argument("file")
     i.add_argument("--json", action="store_true"); i.set_defaults(fn=_inspect)
+
+    ed = sub.add_parser("edges")
+    ed.add_argument("file")
+    ed.add_argument("--indexes", help="comma-separated edge indexes to print")
+    ed.add_argument("--no-faces", action="store_true",
+                    help="skip adjacent face classification")
+    ed.add_argument("--json", action="store_true")
+    ed.set_defaults(fn=_edges)
+
+    em = sub.add_parser("edge-match")
+    em.add_argument("file")
+    em.add_argument("--lengths", required=True,
+                    help="comma-separated measured edge lengths")
+    em.add_argument("--tolerance", type=float, default=0.05)
+    em.add_argument("--limit", type=int, default=5)
+    em.add_argument("--no-faces", action="store_true",
+                    help="skip adjacent face classification")
+    em.add_argument("--json", action="store_true")
+    em.set_defaults(fn=_edge_match)
 
     e = sub.add_parser("equiv")
     e.add_argument("original"); e.add_argument("candidate")

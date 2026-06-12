@@ -39,10 +39,11 @@ Two layers. Keep them separate; never let domain terms leak into the core.
   - `impact.py` — `analyze_tree` orchestrator; classifier is **injected**
     (`RuleClassifier`), dependency-inverted.
   - `report.py` — CSV + Markdown writers (title/intro injected).
-  - `cli.py` — `python -m cadre.cli {probe,inspect,equiv,scaffold}`, works on ANY
-    file. `inspect` dumps bbox (min/max) + every cylindrical face with its
-    ABSOLUTE center — use it to answer placement questions ("is the bolt hole on
-    the frame?") that the canonicalized `hole_families` centers can't.
+  - `cli.py` — `python -m cadre.cli {probe,inspect,edges,edge-match,equiv,scaffold}`,
+    works on ANY file. `inspect` dumps bbox (min/max) + every cylindrical face
+    with its ABSOLUTE center — use it to answer placement questions ("is the bolt
+    hole on the frame?") that the canonicalized `hole_families` centers can't.
+    `edges`/`edge-match` bridge viewer selections back to B-rep edges.
 - **`studies/<name>/` — specialized layer.** Thin. Supplies the domain: specs,
   keyword policy, classifier rules, drivers. `studies/xl430_lowcost/` targets the
   Dynamixel XL330→XL430 swap on this repo's `hardware/` tree.
@@ -74,6 +75,41 @@ for rebuilding the interface. `axes` = distinct axis lines (B-rep sign normalise
 split faces collapsed); `faces` = raw cylindrical faces. A single axis line can be
 one through-hole or two coaxial blind holes, so the true hole count sits in
 `[axes, faces]` — resolve from intent. Probes degrade gracefully without CadQuery.
+
+## Resolve viewer-selected edges to B-rep meaning
+
+When a browser/CAD viewer reports selected edge metadata (edge indexes, lengths,
+endpoints, or an owning node), do not stop at the UI label. Resolve the selection
+against STEP topology:
+
+```bash
+# Print specific edge records: length, curve type, endpoints, circle data,
+# and adjacent face types (plane/cylinder/etc.).
+uv run python -m cadre.cli edges path/to/part.step --indexes 48,49,0
+
+# When viewer edge indexes do not match the standalone STEP traversal, match by
+# measured lengths first, then confirm by coordinates and curve/surface type.
+uv run python -m cadre.cli edge-match path/to/part.step \
+  --lengths 9.146160652,2.265450228,3.091413309 --tolerance 0.01
+```
+
+Use this workflow for selection interpretation:
+
+1. Record the viewer owner path/id, selected indexes, lengths, and endpoints.
+2. If the selection came from an assembly, identify duplicate display names by
+   owner id, tree order, STEP occurrence lines, and coordinate range. Never rely
+   on a repeated display name such as `connector` alone.
+3. Run `inspect` on candidate standalone STEP files to identify nearby hole
+   families and absolute centers.
+4. Run `edges` when viewer indexes map directly; otherwise run `edge-match`.
+5. Classify each selected edge:
+   - `circle` adjacent to `cylinder` = hole/seat rim.
+   - `line`/`bspline` adjacent to a cylinder and a plane/surface = cut boundary
+     or blend around a bore/seat.
+   - `line`/`bspline` on only outer faces = outer profile/outline.
+6. Report the conclusion as: selected owner, assembly occurrence, actual part
+   STEP, local coordinate range, related hole family, edge classification, and
+   design implication.
 
 ## Equivalent-shape-first reconstruction
 

@@ -115,6 +115,32 @@ def test_cylinder_faces_recovers_holes_from_generated_step(tmp_path):
     assert xy == [(-8, 0), (0, -8), (0, 8), (8, 0)]
 
 
+def test_edge_records_and_length_match_classify_step_edges(tmp_path):
+    from cadre import brep_available, edge_records, match_edge_lengths
+    if not brep_available():
+        import pytest as _pt
+        _pt.skip("cadquery/OCP not available")
+    centers = [(0, 8), (0, -8), (8, 0), (-8, 0)]
+    plate = parametric.adapter_plate(centers, hole_diameter=2.4,
+                                     plate_w=30, plate_h=30, thickness=4)
+    step = tmp_path / "plate.step"
+    parametric.export(plate, tmp_path / "plate", formats=("step",))
+
+    r = edge_records(step)
+    assert r["available"] and r["edge_count"] >= 16
+    circle_edges = [e for e in r["edges"] if e["curve_type"] == "circle"]
+    assert circle_edges
+    hole_edge = circle_edges[0]
+    assert hole_edge["circle"]["radius"] == pytest.approx(1.2, abs=0.01)
+    assert any(f["surface_type"] == "cylinder"
+               for f in hole_edge.get("adjacent_faces", []))
+
+    m = match_edge_lengths(step, [hole_edge["length"]], tolerance=1e-6, limit=3)
+    first = m["queries"][0]["matches"][0]
+    assert first["index"] == hole_edge["index"]
+    assert first["within_tolerance"] is True
+
+
 def test_equivalence_gate_distinguishes_same_vs_different():
     with tempfile.TemporaryDirectory() as td:
         d = Path(td)

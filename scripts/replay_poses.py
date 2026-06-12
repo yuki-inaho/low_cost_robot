@@ -57,6 +57,19 @@ def grid_poses(model, fractions=(-0.5, 0.0, 0.5),
     return poses
 
 
+def _parse_fractions(value: str) -> tuple[float, ...]:
+    try:
+        out = tuple(float(x.strip()) for x in value.split(",") if x.strip())
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"expected comma-separated floats, got {value!r}") from exc
+    if not out:
+        raise argparse.ArgumentTypeError("at least one fraction is required")
+    if any(x < -1.0 or x > 1.0 for x in out):
+        raise argparse.ArgumentTypeError("fractions must lie within [-1.0, 1.0]")
+    return out
+
+
 def replay_pose(model, data, target: list[float], settle_s: float = 2.0) -> dict:
     """Command `target`, settle, measure tracking error + non-adjacent self-interference."""
     mujoco.mj_resetData(model, data)
@@ -99,7 +112,7 @@ def _load_targets(args, model) -> list[list[float]]:
         else:
             raise SystemExit(f"--poses {args.poses}: expected a list or {{'targets':[...]}}")
     if args.emit_grid:
-        targets.extend(grid_poses(model))
+        targets.extend(grid_poses(model, fractions=args.fractions))
     if not targets:
         raise SystemExit("no poses: pass --poses FILE and/or --emit-grid (no fallback)")
     return targets
@@ -131,6 +144,10 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--poses", type=Path, help="JSON list of targets or a reachable-set dump")
     ap.add_argument("--emit-grid", action="store_true",
                     help="add the {-50%%,0,+50%%} actuator grid to the poses")
+    ap.add_argument("--fractions", type=_parse_fractions,
+                    default=(-0.5, 0.0, 0.5),
+                    help=("comma-separated actuator-range fractions for --emit-grid; "
+                          "use --fractions=-0.6,-0.3,0,0.3,0.6 for a 5-level grid"))
     ap.add_argument("--settle", type=float, default=2.0)
     ap.add_argument("--save-reachable", type=Path,
                     help="write {'targets':[...]} of the OK poses (the reference set)")
