@@ -6,6 +6,11 @@ A long beam (Y -73.046..17.054 = 90.1) bridging two interfaces along X. Upstream
 (Y~-69): 2x M2 clearance through (axis X). The XL330 -> XL430 swap grows the end
 interface clearance; the LINK LENGTH (90.1) is preserved. Frame: X[-17.5,17.5] Z[0,23].
 
+The upstream end carries an OUTWARD circular flange/collar (radius 12mm, 3mm thick,
+extruded +X from face_x=17.5) that surrounds the bolt circle by >=2.5mm. It is extruded
+outward only: an earlier full-width oval extrusion intruded into the XL430 servo body +
+horn in assembly context, so the collar grows in +X (toward free space) instead.
+
     uv run python studies/xl430_lowcost/parts/elbow_to_wrist_extension.py --out outputs/parts
 """
 from __future__ import annotations
@@ -48,23 +53,38 @@ def make_extension(servo: Component, intent: PartIntent | None = None) -> cq.Wor
             .translate((0, -73.046, 0)))
     face_x = float(beam["upstream_face_x_mm"])
 
+    # Circular upstream flange = an OUTWARD-ONLY collar on the +X face. The previous oval
+    # was extruded `both=True` over the full X width; its inward half intruded into the
+    # XL430 servo body + horn (DC15_A01) in assembly context (13 solids, ~5.7k mm^3). An
+    # outward-only collar (X[face_x, face_x+thickness]) clears every neighbour while still
+    # surrounding the bolt circle by >=2.5mm. The blind seats are then drilled from the
+    # COLLAR outer face (face_x + thickness) so they stay open through the collar with the
+    # same YZ centres / diameters / axis and the same body-side termination plane.
+    seat_face = face_x
     if flange is not None:
         fc = flange.constraints
         cy, cz = [float(v) for v in fc["center_yz_mm"]]
-        support = (cq.Workplane("YZ")
-                   .center(cy, cz)
-                   .ellipse(float(fc["radius_y_mm"]), float(fc["radius_z_mm"]))
-                   .extrude(width_x / 2.0, both=True))
-        body = body.union(support)
+        radius = float(fc["radius_mm"])
+        thickness = float(fc["flange_thickness_mm"])
+        collar = (cq.Workplane("YZ")
+                  .center(cy, cz)
+                  .circle(radius)
+                  .extrude(thickness)              # outward only (+X), not `both`
+                  .translate((face_x, 0.0, 0.0)))
+        body = body.union(collar)
+        seat_face = face_x + thickness             # drill from the collar's outer face
 
-    # upstream: 4x phi1.8 tap diamond (blind into -X from the +X face)
+    seat_extra = seat_face - face_x                # added collar depth the seats pass through
+    # upstream: 4x phi1.8 tap diamond (blind into -X; opens at the collar outer face)
     for (yy, zz) in horn["diamond_centers_yz_mm"]:
         body = P.blind_seat(body, (0.0, yy, zz), float(horn["hole_diameter_mm"]),
-                            float(horn["blind_depth_mm"]), face=face_x, axis="X", into=-1)
-    # upstream: 2x phi8 idler bores (blind into -X)
+                            float(horn["blind_depth_mm"]) + seat_extra,
+                            face=seat_face, axis="X", into=-1)
+    # upstream: 2x phi8 idler bores (blind into -X; opens at the collar outer face)
     for (yy, zz) in idler["centers_yz_mm"]:
         body = P.blind_seat(body, (0.0, yy, zz), float(idler["diameter_mm"]),
-                            float(idler["blind_depth_mm"]), face=face_x, axis="X", into=-1)
+                            float(idler["blind_depth_mm"]) + seat_extra,
+                            face=seat_face, axis="X", into=-1)
     # downstream: 2x M2 clearance through (axis X)
     body = P.drill(body, [tuple(c) for c in down["mount_centers_mm"]],
                    float(down["hole_diameter_mm"]), "X")

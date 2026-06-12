@@ -49,14 +49,20 @@ features:
     type: structural_support
     preserves: [hole_centers, hole_diameters, output_axis, link_length]
     constraints:
-      profile: oval_yz
+      profile: circle_yz          # circular flange (was oval_yz) for uniform edge distance
       center_yz_mm: [10.5, 9.5]
-      radius_y_mm: 10.0
-      radius_z_mm: 10.8
+      radius_mm: 12.0             # outer radius; max hole-EDGE extent 8.863mm (tap @YZ(2.6,8.5),
+                                  # centre-dist 7.963 + r0.9) -> true min wall 3.137mm >= 2.5
+      flange_thickness_mm: 3.0    # OUTWARD collar depth from the upstream face (+X only)
+      outward_only: true          # do NOT extrude both ways; the inward half hit the XL430
+                                  # servo body + horn (DC15_A01) in assembly context. An
+                                  # outward-only collar clears all neighbours (assembly
+                                  # boolean intersection = 0mm^3) while keeping >=2.5mm wall.
       min_wall_mm: 2.5
-      full_x_width: true
-      cut_source_face_x_mm: 17.5
-      bbox_growth: "intentional upstream support growth; link_length_y_mm remains the functional distance"
+      cut_source_face_x_mm: 17.5   # blind seats are re-referenced to the collar outer face
+                                  # (face + thickness) so they stay open through the collar
+                                  # with the SAME YZ centers / diameter / axis / termination.
+      bbox_growth: "intentional upstream collar growth in +X; link_length_y_mm preserved"
   - name: link_beam
     type: structural_beam
     preserves: [joint_distance, link_length]
