@@ -218,7 +218,11 @@ def main(argv: list[str]) -> int:
               "all_joints_extreme": extreme, "overall_passed": ok}
 
     if a.json:
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        # numpy scalar booleans/floats (e.g. `x <= LIMIT` yields numpy.bool_) leak
+        # into the result dict and are not natively JSON-serializable; coerce them.
+        def _native(o):
+            return o.item() if hasattr(o, "item") else str(o)
+        print(json.dumps(result, indent=2, ensure_ascii=False, default=_native))
         return 0 if ok else 1
 
     actuated = [j for j in desc["joints"] if j["type"] in ("hinge", "slide")]

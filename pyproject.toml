@@ -10,6 +10,10 @@ dependencies = [
 
 [dependency-groups]
 sim = ["mujoco"]
+dev = ["pytest"]
 
 [tool.uv]
 default-groups = ["sim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

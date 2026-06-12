@@ -88,6 +88,43 @@ Struggles → fixes that became skill features:
   φ26 seat spanning the full 26 mm thickness + Solid+Wireframe see-through — not a
   defect.
 
+## Session 3 (agent-team workdoc execution: XL430 migration)
+
+Run via start-work-audit-pattern (coordinator + persistent worker + auditor) against the
+XL430 migration workdoc. Findings worth feeding back into the skills:
+- **F-1 (`check_simulation.py --json`)**: numpy scalar comparisons (`x <= LIMIT`) yield
+  `numpy.bool_`, which `json.dumps` rejects (`TypeError: ... bool not serializable`; the name
+  reads as plain "bool" in numpy 2.x, misleading). FIX/RULE: any JSON-emitting tool must pass
+  `json.dumps(..., default=lambda o: o.item() if hasattr(o,"item") else str(o))`. Consider
+  baking this into a `cadre` JSON helper so new tools inherit it.
+- **F-5 (intent vs reality drift)**: a `<part>.yaml` declared `motor_body_bore.through: true`
+  while the implementation/`inspect` showed a blind 3 mm counterbore (φ26 = 2 wall faces, φ10
+  single axis). The C-B8 through/blind *declaration* must be cross-checked against the built
+  geometry — a declaration the part doesn't honour is worse than none. TIP: add an automated
+  check that the YAML `through` flag matches the recovered axes/faces topology.
+- **C-A2 is the right gate for organic parts; C-A1 is not.** Mesh-distance equivalence (C-A1)
+  fails on Fusion-organic originals (surface max ~19 mm here) AND `volume_delta` is `None`
+  because the shipped `hardware/follower/stl/*.stl` are **non-watertight**. Feature-level
+  equivalence (C-A2: hole families, dia Δ, center NN) passed exactly (NN=0.0). RULE: gate on
+  C-A2; document the C-A1 gap; don't trust volume on these STLs (repair or compare STEP).
+- **C-A2 compares the in-plane pattern only** (families keyed by radius+axis-dir; axial
+  position is NOT compared — that belongs to C-B5/C-B7). State this in any equivalence report
+  so "NN=0" is not over-read as full 3D coincidence.
+- **Counterbore modeling**: a φ26 seat tangent to a wall edge produces a degenerate
+  (non-manifold) mesh; give the wall ≥ seat+6 mm. And a seat depth (3 mm) into a thin wall
+  (4 mm) leaves 1 mm floor < typical 2.5 mm min-wall — counterbore depth must be checked
+  against wall thickness (manufacturability).
+- **Tip (agent team)**: persistent subagents are resumed by **agentId** (from the spawn
+  result), not by the `name=` — SendMessage to the name fails once the task completes.
+- **F-6 (silent no-op on resume)**: a SendMessage to a persistent auditor returned
+  "resumed in background" but produced **no output** (its transcript stayed at the
+  previous task). Before depending on a delegated result, **verify progress** (output
+  file mtime / last event); on a silent no-op, do NOT wait implicitly — run the check
+  directly and record the delegation failure explicitly. Coverage rule that worked:
+  spend the auditor's independent eye on *substantive* artifacts (the 2 real swaps +
+  the regression); peripheral NO-OP / not-applicable parts can be coordinator-verified
+  (tests + md5 identity) when delegation is flaky.
+
 ## Improvement backlog (next iterations)
 
 - [x] Design-intent layer + functional checks + LLM descriptor (intent/checks/descriptor).
