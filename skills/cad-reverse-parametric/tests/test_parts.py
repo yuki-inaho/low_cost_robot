@@ -543,6 +543,151 @@ def test_elbow_to_wrist_extension_preservation_validator_cli():
     assert code == 0 and result["passed"], result
 
 
+def test_fastening_interface_validator_detects_shifted_extension_red_pattern():
+    """TDD red pattern: the fastening overlay validator must fail shifted hole centers."""
+    _brep_or_skip()
+    mod = _load_study_module("validate_fastening_interfaces")
+    reference = _HW_STEP / "elbow_to_wrist_extension.step"
+    code, result = mod._run(
+        reference=reference,
+        candidate=reference,
+        candidate_translate=(0.0, 1.0, 0.0),
+        fail_on_mismatch=True,
+    )
+    assert code == 2
+    assert not result["passed"]
+    assert result["worst_center_nn_mm"] > 0.15
+
+
+def test_fastening_interface_validator_accepts_extension_original_and_current():
+    """Original STEP and current generated no-op model keep the same fastening centers."""
+    _brep_or_skip()
+    mod = _load_study_module("validate_fastening_interfaces")
+    reference = _HW_STEP / "elbow_to_wrist_extension.step"
+    current = _ROOT / "outputs" / "parts" / "elbow_to_wrist_extension_xl430.step"
+
+    original_code, original = mod._run(reference=reference, candidate=reference)
+    current_code, current_result = mod._run(reference=reference, candidate=current)
+
+    assert original_code == 0 and original["passed"], original
+    assert current_code == 0 and current_result["passed"], current_result
+
+
+def test_liaison_interface_prototype_reports_shifted_mounting_red_pattern():
+    """Liaison prototype must surface failed mounting alignment, not only raw holes."""
+    _brep_or_skip()
+    mod = _load_study_module("build_liaison_interfaces")
+    reference = _HW_STEP / "elbow_to_wrist_extension.step"
+    _, result = mod._run(
+        reference=reference,
+        candidate=reference,
+        candidate_translate=(0.0, 1.0, 0.0),
+    )
+    assert not result["passed"]
+    failed = [m for l in result["liaisons"] for m in l["mountings"] if not m["passed"]]
+    assert failed
+    assert max(m["center_nn_mm"] for m in failed) > 0.15
+
+
+def test_liaison_interface_prototype_accepts_current_extension_model():
+    """Current no-op extension produces liaison records with all mountings aligned."""
+    _brep_or_skip()
+    mod = _load_study_module("build_liaison_interfaces")
+    _, result = mod._run()
+    assert result["passed"], result
+    ids = {liaison["id"] for liaison in result["liaisons"]}
+    assert "elbow_to_wrist_extension.upstream_horn_mount" in ids
+    assert "elbow_to_wrist_extension.downstream_mount" in ids
+    assert all(m["passed"] for l in result["liaisons"] for m in l["mountings"])
+
+
+def test_assembly_liaison_characterization_detects_mating_offsets():
+    """Actual assembly liaison prototype must expose real mating offsets, not hide them."""
+    _brep_or_skip()
+    mod = _load_study_module("validate_assembly_liaisons")
+    _, result = mod._run()
+    assert not result["passed"]
+    liaisons = {liaison["id"]: liaison for liaison in result["liaisons"]}
+    assert liaisons["assembly.connector_116.upstream_horn_pair"]["contact"]["min_distance_mm"] == 0.0
+    assert liaisons["assembly.connector_116.upstream_horn_pair"]["mountings"][0]["center_nn_mm"] > 1.0
+    assert liaisons["assembly.connector_116.downstream_mount_pair"]["mountings"][0]["center_nn_mm"] >= 1.0
+
+
+def test_assembly_liaison_characterization_reports_depth_and_tool_access_fields():
+    """Assembly liaison JSON includes screw-depth and tool-access status fields."""
+    _brep_or_skip()
+    mod = _load_study_module("validate_assembly_liaisons")
+    _, result = mod._run()
+    for liaison in result["liaisons"]:
+        fastener = liaison["fastener_set"]
+        assert "screw_length_depth_check" in fastener
+        assert "tool_access_check" in fastener
+        assert fastener["screw_length_depth_check"]["status"] in {"pass", "fail", "unknown", "not_applicable"}
+        assert fastener["tool_access_check"]["status"] in {"pass", "fail", "unknown", "not_applicable"}
+
+
+def test_rule_catalog_detects_shifted_candidate_red_pattern_and_stores_duckdb():
+    """Data-driven rules must fail shifted holes and persist the run to DuckDB."""
+    _brep_or_skip()
+    mod = _load_study_module("validate_rule_catalog")
+    with tempfile.TemporaryDirectory() as td:
+        db = Path(td) / "validation_rules.duckdb"
+        code, result = mod._run(
+            profile_id="candidate_preservation",
+            candidate_translate=(0.0, 1.0, 0.0),
+            preservation_samples=500,
+            db_path=db,
+            sync_db=True,
+            store_run=True,
+        )
+    assert code == 2
+    assert not result["passed"]
+    assert result["blocking_failed_count"] > 0
+    failed_ids = {item["rule_id"] for item in result["failed_rules"]}
+    assert "hole_family_preservation.worst_center_nn" in failed_ids
+    assert result["duckdb"]["counts"]["rules"] >= 10
+    assert result["duckdb"]["counts"]["validation_runs"] == 1
+    assert result["duckdb"]["counts"]["rule_results"] == len(result["rule_results"])
+
+
+def test_rule_catalog_accepts_current_candidate_and_stores_duckdb():
+    """Current no-op candidate passes blocking catalog rules and can be queried later."""
+    _brep_or_skip()
+    mod = _load_study_module("validate_rule_catalog")
+    with tempfile.TemporaryDirectory() as td:
+        db = Path(td) / "validation_rules.duckdb"
+        code, result = mod._run(
+            profile_id="candidate_preservation",
+            preservation_samples=500,
+            db_path=db,
+            sync_db=True,
+            store_run=True,
+        )
+        inspect = mod._inspect_db(db)
+    assert code == 0 and result["passed"], result
+    assert result["blocking_failed_count"] == 0
+    assert inspect["counts"]["rule_catalogs"] == 1
+    assert inspect["counts"]["rule_profiles"] >= 2
+    assert inspect["counts"]["rule_groups"] >= 7
+    assert inspect["counts"]["rules"] == result["duckdb"]["counts"]["rules"]
+    assert inspect["counts"]["validation_runs"] == 1
+
+
+def test_rule_catalog_assembly_profile_records_nonblocking_mating_findings():
+    """Known arm.step mating offsets are retained as non-blocking characterization rules."""
+    _brep_or_skip()
+    mod = _load_study_module("validate_rule_catalog")
+    code, result = mod._run(profile_id="assembly_characterization")
+    assert code == 0
+    assert result["passed"], result
+    assert result["failed_count"] > 0
+    assert result["blocking_failed_count"] == 0
+    failed_ids = {item["rule_id"] for item in result["failed_rules"]}
+    assert "actual_mating_alignment.actual_center_offsets" in failed_ids
+    assert "fastener_depth.depth_status_pass_or_na" in failed_ids
+    assert "tool_access.tool_status_pass_or_na" in failed_ids
+
+
 def test_shoulder_rotation_builds_and_no_swap():
     """shoulder_rotation holds joint1 = XL430 already -> SWAP NOT APPLICABLE. Build
     stage-1 and assert the intent records swap_applicable: false (explicit, not silent)."""
