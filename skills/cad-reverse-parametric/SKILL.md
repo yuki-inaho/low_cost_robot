@@ -18,6 +18,35 @@ using only open Python libraries in a `uv` environment. Built for the workflow:
 **measure the original → reconstruct an equivalent parametric shape → prove
 equivalence → then change the parameter** (e.g. swap a servo).
 
+## Non-destructive original-shape rule
+
+Do not turn a local CAD concern into a full redesign. For imported STEP parts
+without reliable design history, the original B-rep is the source of truth.
+Parametric work must preserve the original shape first, then edit only the
+approved local features.
+
+Use this rule before implementing any geometry change:
+
+1. Define the user's real objective, not just the local feature that caught
+   attention. A suggestion such as "make the hole area rounder" may be partly
+   right, but it does not authorize replacing the whole end of the part with a
+   large circular flange.
+2. Define a **change mask**: allowed faces/edges, local coordinate ranges, hole
+   families, and functional dimensions. Everything outside the mask is
+   preserve-by-default.
+3. If the original has organic, asymmetric, forked, blended, or sculpted shape,
+   do not remodel it from scratch unless the Stage-1 reconstruction proves
+   geometric equivalence. Prefer local B-rep boolean/patch edits on the original
+   STEP, or stop and report that human CAD judgement is required.
+4. Make original-shape preservation the first acceptance gate. Tests for
+   min-wall, boltability, and interference are necessary but not sufficient: if
+   the unchanged outline, asymmetry, thickness, or neighboring clearances drift
+   outside the change mask, the design fails even when all local tests pass.
+5. Always compare original vs candidate visually in the same camera orientations
+   (X/Y/Z, or six faces when needed) and numerically (bbox, surface distance,
+   key edge/face families). Record the comparison before saying the design is
+   done.
+
 ## Architecture (SOLID / KISS / DRY)
 
 Two layers. Keep them separate; never let domain terms leak into the core.
@@ -117,8 +146,9 @@ Use this workflow for selection interpretation:
 2. **Reconstruct** parametrically with the *original* spec using `cadre.parametric`.
 3. **Prove equivalence** before changing anything:
    ```bash
-   uv run python -m cadre.cli equiv original.stl reconstructed.stl
-   # verdict.equivalent must be true (bbox ≤0.5mm, surface max ≤0.5mm, vol ≤2%)
+   uv run python -m cadre.cli equiv original.stl reconstructed.stl --fail-on-non-equivalent
+   # exits non-zero unless verdict.equivalent is true
+   # default thresholds: bbox ≤0.5mm, surface max ≤0.5mm, vol ≤2%
    ```
 4. **Swap the parameter** (new `Envelope`/spec) and re-export STEP/STL.
 5. **Interference-check** the new envelope proxy against neighbours.
@@ -128,6 +158,14 @@ for the XL330/XL430 driver values (verify against the ROBOTIS e-Manual). To
 visually inspect a STEP (reconstruction or original) in the browser CAD chili3d —
 including how to rotate/pan/zoom and drive it headlessly — see
 `references/chili3d_viewing.md`.
+
+Study-specific acceptance helpers may wrap these generic gates. For example, the
+current XL430 low-cost study has a preservation contract check for the extension
+part:
+
+```bash
+uv run python studies/xl430_lowcost/validate_extension_preservation.py
+```
 
 ## Run an impact study
 

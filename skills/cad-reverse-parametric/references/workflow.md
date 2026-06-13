@@ -10,16 +10,48 @@ This keeps every change auditable: at step 3 you have a parametric model that
 provably reproduces the original, so any later difference is attributable to the
 parameter you intentionally changed.
 
+## First gate: preserve the original design
+
+Before any parameter swap or local improvement, write down the user's real
+objective and the **change mask**. For a user request like "the four bolt holes
+look too close to the edge; maybe make that area rounder", the round/flange idea
+can be a valid local design hint, but it does not authorize replacing the part's
+whole end profile, asymmetry, forks, blends, or neighboring clearances.
+
+If the part has no design history and the original STEP is organic or
+asymmetric, the original B-rep is the source of truth. Either:
+
+- prove an equivalent Stage-1 reconstruction before changing parameters, or
+- edit the original B-rep only inside a declared local mask, or
+- stop and report that the requested change needs human CAD judgement.
+
+Never accept a candidate only because local tests pass. `min_wall`,
+boltability, and assembly interference tests are downstream gates. They do not
+replace the upstream gate: **unchanged regions must remain unchanged**.
+
 ## Stages and gates
 
 | Stage | Action | Tool | Pass gate |
 |------|--------|------|-----------|
+| -1 Intent/mask | Restate user objective, allowed change mask, and preserve-by-default regions | workdoc + intent YAML | user objective is not reduced to a local optimization; forbidden regions are explicit |
 | 0 Measure | Extract envelope, hole families, axes, bores from the original STEP | `cadre.cli probe --brep` / `brep_probe` | report produced; hole families look physical |
 | 1 Reconstruct | Rebuild the part parametrically with the **original** spec | `cadre.parametric` + part script | model builds, exports STEP/STL |
-| 2 Equivalence | Compare reconstruction vs original | `cadre.cli equiv` | `verdict.equivalent == true` (bbox ≤0.5mm, surface max ≤0.5mm, vol ≤2%) |
+| 2 Equivalence | Compare reconstruction vs original | `cadre.cli equiv --fail-on-non-equivalent` | exit code 0 only when `verdict.equivalent == true` (bbox ≤0.5mm, surface max ≤0.5mm, vol ≤2%) |
 | 3 Swap | Change the `Envelope`/spec to the new servo, re-export | part script | builds; parameters propagate |
 | 4 Interference | Check the new envelope proxy against neighbours | `cadre.parametric.envelope_proxy` + boolean | no overlap with adjacent links |
 | 5 Print check | Wall thickness, screw seats, axis alignment | `stl_geometry_probe` + manual | physical fit on the bench |
+
+If Stage 2 fails on an organic part, do not keep adding local tests until the
+new model looks "good enough". Switch to local B-rep editing or mark the part as
+not safely reconstructable by this workflow.
+
+Study-level validation commands can bundle multiple gates for a known risky part.
+In `studies/xl430_lowcost`, run the extension preservation contract before treating
+any `elbow_to_wrist_extension` output as acceptable:
+
+```bash
+uv run python studies/xl430_lowcost/validate_extension_preservation.py
+```
 
 ## What "measure" recovers (real data from this repo)
 

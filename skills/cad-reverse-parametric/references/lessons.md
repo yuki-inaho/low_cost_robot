@@ -133,6 +133,37 @@ XL430 migration workdoc. Findings worth feeding back into the skills:
   (instead of trusting the parameter arithmetic, wall−depth=floor) is implementation
   verification, not box-ticking — budget for it on every min-wall / seat-depth claim.
 
+## Session 4 (failure lesson: destructive local optimization)
+
+The `elbow_to_wrist_extension` circular-flange iteration exposed a more important
+process bug than any single CAD bug:
+
+- **A local design hint is not a license to redesign the part.** The user noticed
+  that four servo fastening holes looked too close to the edge and suggested a
+  rounder/circular flange-like boundary. That idea was partly valid: local
+  rounding or local reinforcement around the bolt pattern could improve edge
+  distance and stress flow. The failure was turning that local hint into a large
+  circular collar that replaced the original end profile.
+- **The wrong DoD made a bad design look successful.** The tests proved
+  min-wall, no assembly intersection, hole-family preservation, and pytest
+  green. Those gates were necessary but incomplete. They did not prove that the
+  original outline, asymmetry, fork/ear shape, partial reliefs, and neighboring
+  clearances were preserved. Because "preserve original shape outside the change
+  mask" was missing, agents reported "done" for a destructive local optimum.
+- **Auditors can only audit the criteria they are given.** Worker/auditor prompts
+  focused on circular collar clearance and edge distance. They did not require
+  same-camera X/Y/Z screenshots of original vs candidate or a change-mask
+  surface-difference gate. The audit therefore validated the wrong problem.
+- **For historyless organic STEP, full re-CAD is the fallback of last resort, not
+  the default.** If an equivalent Stage-1 reconstruction cannot preserve the
+  original, switch to local B-rep editing or stop. Do not keep refining a clean
+  parametric simplification until local tests pass.
+
+Rule to reuse: before changing geometry, write the user's real objective, the
+allowed change mask, and the preserve-by-default regions. Then make
+original-shape preservation the first gate. A candidate that passes min-wall and
+interference but changes the non-target outline is a failure.
+
 ## Improvement backlog (next iterations)
 
 - [x] Design-intent layer + functional checks + LLM descriptor (intent/checks/descriptor).
@@ -145,6 +176,9 @@ XL430 migration workdoc. Findings worth feeding back into the skills:
       driven headlessly via playwright-cli — see `chili3d_viewing.md` (incl. the
       Node ≥20.11 gotcha and rotate/pan/zoom controls).
 - [ ] Automated visual diff (overlay original vs reconstruction) for the gate.
+- [ ] Change-mask preservation gate: compare original vs candidate and fail when
+      unchanged regions drift (bbox/surface distance/key edge families + same
+      camera X/Y/Z screenshots).
 - [ ] `min_wall_thickness` check (medial-axis / ray sampling) — currently a named
       test in intent YAML but not yet implemented in `cadre.checks`.
 - [ ] Replace the assembly size heuristic with a real check (count

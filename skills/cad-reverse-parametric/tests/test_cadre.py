@@ -151,3 +151,20 @@ def test_equivalence_gate_distinguishes_same_vs_different():
         diff = compare(a, c, samples=4000)
         assert verdict(same, EquivalenceThresholds())["equivalent"] is True
         assert verdict(diff, EquivalenceThresholds())["equivalent"] is False
+
+
+def test_equiv_cli_can_fail_on_non_equivalent():
+    from cadre.cli import main as cli_main
+
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        a = _emit(Envelope(28.5, 46.5, 34), d, "a")
+        b = _emit(Envelope(28.5, 46.5, 34), d, "b")
+        c = _emit(Envelope(20, 34, 26), d, "c")
+
+        assert cli_main([
+            "equiv", str(a), str(b), "--samples", "1000", "--fail-on-non-equivalent"
+        ]) == 0
+        assert cli_main([
+            "equiv", str(a), str(c), "--samples", "1000", "--fail-on-non-equivalent"
+        ]) == 2

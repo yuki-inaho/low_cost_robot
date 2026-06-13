@@ -4,7 +4,7 @@
     python -m cadre.cli inspect <file.step>           # bbox + abs hole positions
     python -m cadre.cli edges   <file.step> [--indexes 1,2,3]
     python -m cadre.cli edge-match <file.step> --lengths 9.146,2.265
-    python -m cadre.cli equiv   <original> <candidate> [--samples N]
+    python -m cadre.cli equiv   <original> <candidate> [--samples N] [--fail-on-non-equivalent]
     python -m cadre.cli scaffold --w 28.5 --h 46.5 --d 34 --out OUT
 """
 from __future__ import annotations
@@ -63,6 +63,8 @@ def _equiv(args) -> int:
     cmp["verdict"] = verdict(cmp, EquivalenceThresholds(
         args.max_bbox_mm, args.max_surf_mm, args.max_vol_pct))
     print(json.dumps(cmp, indent=2, ensure_ascii=False))
+    if args.fail_on_non_equivalent and not cmp["verdict"]["equivalent"]:
+        return 2
     return 0
 
 
@@ -173,6 +175,8 @@ def main(argv: list[str]) -> int:
     e.add_argument("--max-bbox-mm", type=float, default=0.5)
     e.add_argument("--max-surf-mm", type=float, default=0.5)
     e.add_argument("--max-vol-pct", type=float, default=2.0)
+    e.add_argument("--fail-on-non-equivalent", action="store_true",
+                   help="exit with code 2 when verdict.equivalent is false")
     e.set_defaults(fn=_equiv)
 
     s = sub.add_parser("scaffold")
