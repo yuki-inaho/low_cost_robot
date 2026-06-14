@@ -200,6 +200,7 @@ rules:
     extractor: assembly_liaison
     metric_path: liaisons[*].fastener_set.screw_length_depth_check.status
     aggregate: all_in
+    operator: all_in
     expected: ["pass", "not_applicable"]
     failure_message: Screw length/depth is not certified.
   - rule_id: tool_access.tool_status_pass_or_na
@@ -208,5 +209,6 @@ rules:
     extractor: assembly_liaison
     metric_path: liaisons[*].fastener_set.tool_access_check.status
     aggregate: all_in
+    operator: all_in
     expected: ["pass", "not_applicable"]
     failure_message: Tool access is not certified.

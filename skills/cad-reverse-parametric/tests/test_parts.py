@@ -353,6 +353,57 @@ def test_gripper_moving_part_swap_recorded():
     assert abs(x.volume - o.volume) < 1.0, "horn-only part: swap must be a no-op"
 
 
+def test_gripper_moving_printable_variant_is_watertight_without_moving_holes():
+    """Print-only repair may add outer material, but must keep functional holes."""
+    _brep_or_skip()
+    import domain
+    from cadre import cylinder_faces
+
+    mod = _load_part_module("gripper_moving_part")
+    canonical = _export_step(mod.make_gripper_moving(domain.XL430))
+    printable_model = mod.make_gripper_moving_printable(domain.XL430)
+    printable_mesh = _to_trimesh(printable_model)
+    printable_step = _export_step(printable_model)
+
+    assert printable_mesh.is_watertight and printable_mesh.is_volume
+    source = cylinder_faces(canonical)["hole_families"]
+    repaired = cylinder_faces(printable_step)["hole_families"]
+    for family in source:
+        candidates = [
+            f for f in repaired
+            if abs(float(f["diameter"]) - float(family["diameter"])) <= 0.05
+            and tuple(round(x, 1) for x in f["axis_dir"]) == tuple(round(x, 1) for x in family["axis_dir"])
+            and int(f["axes"]) == int(family["axes"])
+        ]
+        assert candidates, f"printable variant lost family {family}; repaired={repaired}"
+        assert any(
+            __import__("cadre").checks.hole_pattern_match(
+                family["centers"], candidate["centers"], tol_mm=0.15
+            ).passed
+            for candidate in candidates
+        ), f"printable variant moved family {family}; repaired={repaired}"
+
+
+def test_print_readiness_detects_and_repairs_gripper_moving_nonmanifold_stl():
+    """Print readiness gate fails canonical non-manifold STL and passes print repair."""
+    _brep_or_skip()
+    mod = _load_study_module("validate_print_readiness")
+
+    fail_code, fail_result = mod._run(repair=False)
+    assert fail_code == 2
+    failed_names = {item["name"] for item in fail_result["blocking_failures"]}
+    assert "gripper_moving_part_xl430" in failed_names
+
+    with tempfile.TemporaryDirectory() as td:
+        ok_code, ok_result = mod._run(print_dir=Path(td) / "print", repair=True)
+    assert ok_code == 0 and ok_result["passed"], ok_result
+    repair = ok_result["package"]["gripper_moving_part_xl430"]
+    assert repair["family_preservation_passed"]
+    assert repair["repaired_mesh"]["watertight"]
+    assert repair["repaired_mesh"]["is_volume"]
+    assert repair["repaired_mesh"]["nonmanifold_or_boundary_edges"] == 0
+
+
 def test_elbow_to_wrist_extension_builds():
     _brep_or_skip()
     import domain

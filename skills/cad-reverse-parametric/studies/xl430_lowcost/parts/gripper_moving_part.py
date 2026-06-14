@@ -23,9 +23,14 @@ import domain
 
 INTENT = Path(__file__).resolve().parents[1] / "intent" / "gripper_moving_part.yaml"
 _SERVOS = {"XL330-M288-T": domain.XL330, "XL430-W250-T": domain.XL430}
+PRINT_EDGE_RELIEF_MM = 0.2
 
 
-def make_gripper_moving(servo: Component, intent: PartIntent | None = None) -> cq.Workplane:
+def make_gripper_moving(
+    servo: Component,
+    intent: PartIntent | None = None,
+    print_edge_relief_mm: float = 0.0,
+) -> cq.Workplane:
     intent = intent or PartIntent.load(INTENT)
     feat = {f.name: f for f in intent.features}
     tap = feat["horn_idler_mount"].constraints
@@ -36,9 +41,14 @@ def make_gripper_moving(servo: Component, intent: PartIntent | None = None) -> c
     # body so the larger XL430 clears behind the recess (kinematic Z interface stays).
     mw, mh, md = servo.envelope.as_tuple()
     foot_y = max(63.999, mh + 16)
+    relief = max(0.0, float(print_edge_relief_mm))
+    # Print-only repair: the real/open recess has two exact tangencies where the phi16
+    # boss seat touches the +X and -Y outer walls. That is acceptable as source
+    # geometry, but exported STL becomes non-manifold. Add material only outside those
+    # two walls for print artifacts; do not change the functional holes/seats.
     body = (cq.Workplane("XY")
-            .box(21.0, foot_y, 35.5, centered=(False, False, False))
-            .translate((-5.0, -8.0, 0)))
+            .box(21.0 + relief, foot_y + relief, 35.5, centered=(False, False, False))
+            .translate((-5.0, -8.0 - relief, 0)))
 
     # phi31 outer body-clearance recess (blind from Z=0, into +Z); grows on swap if the
     # servo body is larger (here phi31 already clears XL330/XL430 horn region; recorded).
@@ -54,6 +64,15 @@ def make_gripper_moving(servo: Component, intent: PartIntent | None = None) -> c
         body = P.blind_seat(body, (tx, ty, 0.0), float(tap["hole_diameter_mm"]),
                             float(tap["blind_depth_mm"]), face=0.0, axis="Z", into=+1)
     return body
+
+
+def make_gripper_moving_printable(
+    servo: Component,
+    intent: PartIntent | None = None,
+    edge_relief_mm: float = PRINT_EDGE_RELIEF_MM,
+) -> cq.Workplane:
+    """Return a print-only manifold variant with unchanged functional holes/seats."""
+    return make_gripper_moving(servo, intent, print_edge_relief_mm=edge_relief_mm)
 
 
 def main(argv: list[str]) -> int:
