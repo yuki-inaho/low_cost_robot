@@ -1,5 +1,7 @@
 # 3D Print Checklist
 
+XL430部品の設計・印刷可否の現状は [xl430_part_completion_status.md](xl430_part_completion_status.md) を参照してください。
+
 This document is a simple print-tracking checklist. The checkbox only means
 "physically printed"; it does not mean CAD validation, slicer validation, assembly
 fit, screw fit, or operation has passed.
