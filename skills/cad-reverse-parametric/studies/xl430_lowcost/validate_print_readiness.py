@@ -9,6 +9,7 @@ Run:
     rtk uv run python studies/xl430_lowcost/validate_print_readiness.py
     rtk uv run python studies/xl430_lowcost/validate_print_readiness.py --repair
 """
+
 from __future__ import annotations
 
 import argparse
@@ -16,8 +17,6 @@ import json
 import shutil
 import sys
 from pathlib import Path
-from typing import Iterable
-
 import numpy as np
 import trimesh
 
@@ -37,12 +36,18 @@ DEFAULT_PRINT_DIR = _CADRE_ROOT / "outputs" / "print"
 
 PRINT_CANDIDATES = [
     "shoulder_to_elbow_xl430",
-    "elbow_to_wrist_xl430",
     "elbow_to_wrist_extension_xl430",
     "gripper_static_part_xl430",
     "gripper_moving_part_xl430",
     "shoulder_rotation_orig",
 ]
+
+EXCLUDED_DESIGNS = {
+    "elbow_to_wrist_xl430": (
+        "2026-09-18 geometry review blocked this model: an outside rounded "
+        "profile was interpreted as a bore, so the existing generated mesh is stale."
+    ),
+}
 
 
 def _edge_anomalies(mesh: trimesh.Trimesh) -> tuple[int, list[dict]]:
@@ -108,11 +113,11 @@ def _repair_gripper_moving(print_dir: Path) -> dict:
     family_checks = []
     for source_family in source["hole_families"]:
         candidates = [
-            f for f in repaired["hole_families"]
+            f
+            for f in repaired["hole_families"]
             if abs(float(f["diameter"]) - float(source_family["diameter"])) <= 0.05
-            and tuple(round(x, 1) for x in f["axis_dir"]) == tuple(
-                round(x, 1) for x in source_family["axis_dir"]
-            )
+            and tuple(round(x, 1) for x in f["axis_dir"])
+            == tuple(round(x, 1) for x in source_family["axis_dir"])
             and int(f["axes"]) == int(source_family["axes"])
         ]
         if not candidates:
@@ -127,7 +132,9 @@ def _repair_gripper_moving(print_dir: Path) -> dict:
             continue
         best = min(
             (
-                checks.hole_pattern_match(source_family["centers"], f["centers"], tol_mm=0.15),
+                checks.hole_pattern_match(
+                    source_family["centers"], f["centers"], tol_mm=0.15
+                ),
                 f,
             )
             for f in candidates
@@ -172,7 +179,12 @@ def _run(
     for name in PRINT_CANDIDATES:
         stl = parts_dir / f"{name}.stl"
         step = parts_dir / f"{name}.step"
-        item = {"name": name, "stl": str(stl), "step": str(step), "step_exists": step.exists()}
+        item = {
+            "name": name,
+            "stl": str(stl),
+            "step": str(step),
+            "step_exists": step.exists(),
+        }
         if not stl.exists():
             item.update({"passed": False, "reason": "stl missing"})
             part_reports.append(item)
@@ -190,7 +202,9 @@ def _run(
                 package[name] = _copy_pair(name, parts_dir, print_dir)
             elif name == "gripper_moving_part_xl430":
                 package[name] = _repair_gripper_moving(print_dir)
-                repaired = _mesh_report(print_dir / "gripper_moving_part_xl430_print.stl")
+                repaired = _mesh_report(
+                    print_dir / "gripper_moving_part_xl430_print.stl"
+                )
                 package[name]["repaired_mesh"] = repaired
                 item["repair_passed"] = bool(
                     repaired["watertight"]
@@ -203,7 +217,8 @@ def _run(
                 package[name] = {"strategy": "none", "reason": "no repair rule defined"}
 
     blocking_failures = [
-        item for item in part_reports
+        item
+        for item in part_reports
         if not item.get("passed", False) and not item.get("repair_passed", False)
     ]
     result = {
@@ -212,10 +227,13 @@ def _run(
         "print_dir": str(print_dir),
         "repair_enabled": bool(repair),
         "passed": len(blocking_failures) == 0,
+        "excluded_designs": EXCLUDED_DESIGNS,
         "blocking_failures": [
             {
                 "name": item["name"],
-                "reason": item.get("reason", "mesh is not print-ready and no repair passed"),
+                "reason": item.get(
+                    "reason", "mesh is not print-ready and no repair passed"
+                ),
                 "mesh": item.get("mesh"),
             }
             for item in blocking_failures
@@ -226,7 +244,9 @@ def _run(
     if repair:
         print_dir.mkdir(parents=True, exist_ok=True)
         report_path = print_dir / "print_readiness_report.json"
-        report_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+        report_path.write_text(
+            json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         result["report"] = str(report_path)
     return (0 if result["passed"] else 2), result
 

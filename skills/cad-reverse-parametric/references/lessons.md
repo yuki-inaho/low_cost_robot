@@ -164,6 +164,46 @@ allowed change mask, and the preserve-by-default regions. Then make
 original-shape preservation the first gate. A candidate that passes min-wall and
 interference but changes the non-target outline is a failure.
 
+## Session 5 (print packaging + fail-closed gates, 2026-09-19)
+
+Two received ZIPs (mixed-servo follower revision, all-XL430 static replacement)
+and the OrcaSlicer packaging work exposed gate design rules worth reusing:
+
+- **A pass report from the wrong baseline is worse than no report.** The received
+  all-XL430 ZIP carried "0 interference" evidence produced on the *mixed* baseline
+  before the 4 motor substitutions. Re-importing the converted 217-leaf STEP found
+  **54 external intersections** (largest ~9,608.8 mm³). Bind every verdict to the
+  candidate revision (hash the exported STEP + manifest + all parts) and re-run the
+  scan on the converted assembly itself.
+- **Same-motor internal overlaps need a separate bucket, not an exclusion flag.**
+  Reference motor shapes overlap themselves (168 pairs here). Classify by physical
+  unit derived from the source assembly paths; only "same named supplier motor
+  unit" is internal, and no caller flag may exclude an external pair.
+- **Fail-closed gate checklist that worked** (reuse for future print gates):
+  re-validate on every package command (never trust archived JSON); require
+  `boolean_attempted_pairs == boolean_candidate_pairs`; require
+  `external_collision_count == len(external_collisions)`; verify leaf count and
+  motor occurrence count; require same-revision evidence (candidate hash) for
+  every pending engineering check; no `--force`/skip switch; refuse an existing
+  output path and any output inside the diagnostic quarantine.
+- **Size the timeout to the measured scan, and keep timeout fail-closed.** The
+  151-solid / 381-pair B-rep scan measured ~11 min; a 600 s worker timeout turned
+  a nearly finished scan (350/381, 54 hits) into a blocking error. Fixed at 1800 s;
+  a timeout still blocks the print. Measure heavy gates and encode the budget.
+- **One gate, one implementation.** The study's `prepare_print_package.py` became
+  a thin wrapper over `study.py print-package`; duplicated gate logic is where
+  drift and bypasses appear.
+- **Process-isolate OCP/CadQuery.** Generating + validating heavy XCAF studies in
+  the pytest process segfaulted when another study loaded a second STEP; one
+  worker subprocess per operation fixed it.
+- **Testability without weakening production paths.** `study_run(root=...)` and
+  `check_reference_hashes(manifest_path=..., reference_dir=...)` let tests exercise
+  symlink/traversal/quarantine rules while production defaults stay fixed; reference
+  resolution must reject paths escaping the reference dir.
+- **Multi-plate slicing is the default for 7 parts.** Validate every
+  `plate_N.gcode` (part counts, warnings, macros, `M191`), not just `plate_1`; a
+  helper that only checked `plate_1` mislabeled a successful 2-plate slice as failed.
+
 ## Improvement backlog (next iterations)
 
 - [x] Design-intent layer + functional checks + LLM descriptor (intent/checks/descriptor).
@@ -186,3 +226,9 @@ interference but changes the non-target outline is a failure.
 - [ ] Auto-compute hole pitch/spacing (we expose centers; derive pitch).
 - [ ] Close the loop empirically: a full stage-1 reconstruction of one real part
       passing the equivalence gate (not just the interface primitive).
+- [ ] Extract the fail-closed gate pattern (reasons list, quarantine root, fresh
+      destination, same-revision evidence) into a reusable `cadre` module so
+      studies stop re-implementing it.
+- [ ] Automated report-provenance check: every validation report records the
+      candidate hash, and any package command refuses an archived report even if
+      a caller passes one explicitly.

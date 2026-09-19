@@ -6,9 +6,11 @@ description: >-
   CAD impact of a hardware change (e.g. swapping a servo/motor/bearing), recover
   mounting-hole patterns / axes / envelopes from STEP files without the original
   parametric source, build an equivalent-shape-first parametric model, or check
-  geometric equivalence between an original and a reconstructed part. Triggers:
+  geometric equivalence between an original and a reconstructed part, or package
+  validated STEP/STL artifacts for a 3D-printer slicer. Triggers:
   "CAD逆エンジニアリング", "STEPをパース", "パラメトリック再構成", "CAD影響範囲",
-  "穴パターン抽出", "同等性チェック", reverse engineer a STEP, parametric CAD swap.
+  "穴パターン抽出", "同等性チェック", "スライサー用に整理", "印刷用G-code",
+  reverse engineer a STEP, parametric CAD swap, prepare a printable CAD package.
 ---
 
 # CAD Reverse-Parametric Toolkit (`cadre`)
@@ -178,6 +180,38 @@ part:
 ```bash
 uv run python studies/xl430_lowcost/validate_extension_preservation.py
 ```
+
+## Package validated parts for a slicer
+
+When the request includes preparing STEP files for a 3D printer, read
+`references/step-to-slicer.md` and use
+`studies/xl430_lowcost/prepare_print_package.py` after the CAD and mesh gates.
+The package command copies accepted STEP/STL pairs into separate directories,
+records hashes and exclusions, and can run OrcaSlicer headlessly for a Creality
+K1C profile. It must not promote an old generated file when a design review has
+blocked the corresponding part. A successful G-code slice is still not evidence
+of assembly fit, strength, or safe operation.
+
+For the mixed-servo follower geometry revision received on 2026-09-19, use
+`studies/follower_geometry_revision/README_ja.md` first. Run its
+`source/rebuild.py` against the repository's hashed `hardware/follower/step`
+inputs, then use `studies/follower_geometry_revision/prepare_print_package.py`.
+This revision has its own seven-part allow-list and validates every OrcaSlicer
+plate; it is not an XL430-all-joints conversion and must not be merged
+conceptually with the older XL430-only package.
+
+For the all-XL430 static replacement received on the same date, read
+`studies/all_xl430_revision/README_ja.md`. Never inherit an interference or
+mounting-axis verdict from the mixed-servo baseline after replacing assembly
+occurrences. Re-import and scan the converted assembly itself. Motor inventory,
+leaf count, a readable STEP, and watertight reused meshes do not prove that the
+new motor envelopes fit the retained brackets. The current all-XL430 prototype
+has 54 post-conversion external intersections (plus 168 same-motor internal
+overlaps counted separately) and no post-conversion axis report, so it stays
+under `outputs/all_xl430_revision/unaccepted/<run-id>/` and
+`source/study.py print-package` re-validates every time and fails closed
+(exit code 2) while any external interference or missing engineering evidence
+remains.
 
 ## Run an impact study
 
