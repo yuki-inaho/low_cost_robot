@@ -1,15 +1,12 @@
 part: follower_elbow_to_wrist
 intent: >-
-  angle bracket ("servo connector angle") that holds the joint3 motor (XL330 ->
-  XL430 swap target) and presents the wrist-horn interface. Frame - part lives in
-  the first octant X[0,22] Y[0,42] Z[0,28]. Two interfaces - (1) BASE on the Z=0
-  face: 4x M2 clearance through-holes in a 16x30 rectangle bolt the bracket to the
-  motor case; (2) HORN end on the Y=42 face: a phi18.12 horn-boss recess plus a 4x
-  M2-tap diamond around (X=11,Z=19) drive the wrist horn. All hole-family numbers
-  are MEASURED from hardware/follower/step/elbow_to_wrist.step via cadre.cli inspect
-  (ground truth). C-A2 / C-B6 / C-B7 / C-B8 declarations live in each feature
-  constraints block. F-5 - through/blind below is consistent with the implementation
-  in parts/elbow_to_wrist.py and with the inspect axes/faces tally.
+  Unvalidated interface prototype for the XL330 to XL430 study. Source STEP
+  envelope is X[0,22] Y[0,42] Z[0,28], with two rounded tabs. Review on 2026-09-18
+  found that phi18.124 surfaces are CONVEX outside profiles, not a horn-boss bore.
+  The source has eight phi2 cylindrical faces in two separated axial intervals,
+  not proof of four 6mm blind taps. Constraints below drive the legacy diagnostic
+  prototype and must not be treated as verified source design intent. Source
+  equivalence must pass before the CLI exports a normal XL430 candidate.
 features:
   - name: motor_cradle
     type: servo_mount
@@ -31,9 +28,8 @@ features:
       # through-bolt into the motor case. NOT tap.
       hole_function: clearance
       hole_diameter_mm: 2.3
-      # C-B8 through/blind: 4 faces / 4 axes -> 1 face per line = THROUGH along +Z.
       through: true
-      through_evidence: "4 faces / 4 axes -> single face per axis line = through holes along Z"
+      through_evidence: "Prototype specification; face counts alone cannot prove through-ness"
       mount_axis_dir: [0.0, 0.0, 1.0]
       # measured absolute centers (x,y,z): rectangle 16 (X) x 30 (Y) at Z=0
       mount_centers_mm: [[3.0, 3.1, 0.0], [19.0, 3.1, 0.0], [3.0, 33.1, 0.0], [19.0, 33.1, 0.0]]
@@ -45,36 +41,31 @@ features:
     preserves: [output_axis, screw_pattern]
     constraints:
       screw: M2-tap
-      # C-B6 function: inspect screw label "M2-tap" (dia 2.00 -> M2-tap band 1.9-2.15),
-      # self-tapping into the plastic horn -> tap, not clearance.
+      # M2-tap is only a diameter-band guess; threads/function are unverified.
       hole_function: tap
       hole_diameter_mm: 2.0
-      # C-B8 through/blind: 8 faces / 4 axes -> 2 coaxial faces per line. These are
-      # BLIND tapped holes entering the Y=42 end wall (entry counter + thread bore),
-      # NOT through (a through hole here would breach the cradle cavity). depth ~6mm.
+      # Diagnostic prototype depth; not a measurement of the original tabs.
       through: false
       blind_depth_mm: 6.0
-      through_evidence: "8 faces / 4 axes -> 2 faces per line = blind tap (entry+bore)
-        from the Y=42 face; full Y[38,42] end wall confirms blind"
+      through_evidence: "Unverified: source cylinder intervals are Y[8.3,9.5] and [39,40.2]"
       horn_axis_dir: [0.0, 1.0, 0.0]
       # diamond pattern in (x,z) at the Y=42 face, around (11,19):
       diamond_centers_xz_mm: [[5.0, 19.0], [11.0, 13.0], [11.0, 25.0], [17.0, 19.0]]
       face_y_mm: 42.0
-  - name: horn_boss_bore
-    type: bore
+  - name: prototype_boss_pocket
+    type: experimental_pocket
     preserves: [output_axis]
     constraints:
       diameter_mm: 18.124
-      # C-B7 seat: horn-boss recess at the Y=42 end face, concentric with the M2-tap
-      # diamond at (x=11, z=18.94). 2 faces / 1 axis. BLIND recess (a seat for the
-      # horn boss), depth ~4mm; does NOT pierce into the cradle cavity.
+      # Retained only to diagnose the old prototype. The source's diameter
+      # 18.124 belongs to a rounded OUTER profile, not a pocket.
       axis_dir: [0.0, 1.0, 0.0]
       center_xz_mm: [11.0, 18.94]
       face_y_mm: 42.0
       through: false
       blind_depth_mm: 4.0
-      through_evidence: "18.12 dia: 2 faces / 1 axis at the Y=42 face -> blind horn-boss seat"
-      seat_role: horn_boss_seat
+      through_evidence: "Prototype-only pocket; no matching concave surface in source STEP"
+      seat_role: unverified_prototype
   - name: link_body
     type: structural_beam
     preserves: [joint_distance, base_to_horn_offset]
@@ -87,10 +78,10 @@ features:
 preserves_global:
   output_axis: Y            # motor output / horn axis is the global Y line
   base_to_horn_y_mm: 42.0
-measured_families:           # snapshot of `cadre.cli inspect` ground truth (C-A2 ref)
-  - {diameter_mm: 2.0,    screw: M2-tap, axes: 4, faces: 8, dir: [0,1,0]}
-  - {diameter_mm: 2.3,    screw: M2,     axes: 4, faces: 4, dir: [0,0,1]}
-  - {diameter_mm: 18.124, screw: null,   axes: 1, faces: 2, dir: [0,1,0]}
+measured_families:           # cylindrical surfaces, not functional hole declarations
+  - {diameter_mm: 2.0, surface_sense: concave, axes: 4, faces: 8, dir: [0,1,0], axial_ranges_mm: [[8.3,9.5], [39,40.2]]}
+  - {diameter_mm: 2.3, surface_sense: concave, axes: 4, faces: 4, dir: [0,0,1]}
+  - {diameter_mm: 18.124, surface_sense: convex, axes: 1, faces: 2, dir: [0,1,0], axial_ranges_mm: [[6.5,9.5], [39,42]]}
 tests:
   - axes_collinear            # horn axis == boss-bore axis
   - hole_pattern_match        # base + horn patterns match the spec

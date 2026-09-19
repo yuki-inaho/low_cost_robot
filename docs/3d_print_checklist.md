@@ -4,9 +4,16 @@ This document is a simple print-tracking checklist. The checkbox only means
 "physically printed"; it does not mean CAD validation, slicer validation, assembly
 fit, screw fit, or operation has passed.
 
-## XL430 Validated Print Package
+## XL430 Mesh-Checked Investigation Package
 
 Use this set for the current XL430 investigation output package.
+
+The 2026-09-18 review found that the existing `elbow_to_wrist_xl430` model is not
+source-equivalent: an outside rounded profile had been mistaken for a bore.
+Existing files under `outputs/parts` and `outputs/print` may predate that finding.
+Mesh-printability results alone do not validate those files for assembly. The
+revised driver blocks normal XL430 export and labels optional diagnostic models
+`*_prototype`. See [the review](cadre_review_20260918.md).
 
 | Printed | Part / file |
 |---|---|

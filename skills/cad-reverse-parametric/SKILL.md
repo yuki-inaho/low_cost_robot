@@ -69,9 +69,9 @@ Two layers. Keep them separate; never let domain terms leak into the core.
     (`RuleClassifier`), dependency-inverted.
   - `report.py` — CSV + Markdown writers (title/intro injected).
   - `cli.py` — `python -m cadre.cli {probe,inspect,edges,edge-match,equiv,scaffold}`,
-    works on ANY file. `inspect` dumps bbox (min/max) + every cylindrical face
-    with its ABSOLUTE center — use it to answer placement questions ("is the bolt
-    hole on the frame?") that the canonicalized `hole_families` centers can't.
+    works on ANY file. `inspect` dumps bbox, cylindrical surface sense,
+    angular spans and axial ranges. `axis_pt` is an axis reference point, not a
+    face center; use `axial_range_mm` to locate the actual trimmed face.
     `edges`/`edge-match` bridge viewer selections back to B-rep edges.
 - **`studies/<name>/` — specialized layer.** Thin. Supplies the domain: specs,
   keyword policy, classifier rules, drivers. `studies/xl430_lowcost/` targets the
@@ -98,12 +98,18 @@ uv run python -m cadre.cli probe path/to/part.stl
 ```
 
 Tier 1 (text) needs no CAD kernel — use it to triage hundreds of files fast.
-Tier 3 (B-rep) recovers **mounting-hole families**: each is a (diameter, screw
-class, axis direction, `axes`, `faces`, centers) group — the parametric drivers
-for rebuilding the interface. `axes` = distinct axis lines (B-rep sign normalised,
-split faces collapsed); `faces` = raw cylindrical faces. A single axis line can be
-one through-hole or two coaxial blind holes, so the true hole count sits in
-`[axes, faces]` — resolve from intent. Probes degrade gracefully without CadQuery.
+Tier 3 (B-rep) recovers **cylindrical surface families**, not verified mounting
+interfaces. The legacy `hole_families` field includes outside rounded profiles;
+use `bore_families` (concave) and `outer_cylinder_families` (convex) to distinguish
+them. Surface sense assumes an outward-oriented solid. `axes` counts distinct
+axis lines; `faces` counts raw faces. Neither proves physical hole count,
+blind/through status, or thread function. Diameter-based screw labels are guesses.
+Confirm openings, material, axial spans and neighbouring faces before assigning
+intent. Probes degrade gracefully without CadQuery.
+
+For code/CAD reviews or a model that passes family checks but looks wrong, read
+`references/geometry-review.md`. It describes executable negative checks and the
+browser-to-B-rep evidence loop.
 
 ## Resolve viewer-selected edges to B-rep meaning
 
@@ -132,7 +138,9 @@ Use this workflow for selection interpretation:
    families and absolute centers.
 4. Run `edges` when viewer indexes map directly; otherwise run `edge-match`.
 5. Classify each selected edge:
-   - `circle` adjacent to `cylinder` = hole/seat rim.
+   - `circle` adjacent to a concave `cylinder` = candidate bore/seat rim; confirm
+     the opening and material. A convex cylinder instead indicates an outside
+     profile or boss, not a hole.
    - `line`/`bspline` adjacent to a cylinder and a plane/surface = cut boundary
      or blend around a bore/seat.
    - `line`/`bspline` on only outer faces = outer profile/outline.
@@ -144,13 +152,17 @@ Use this workflow for selection interpretation:
 
 1. **Measure** the original (tier 3) → hole pattern, axes, envelope.
 2. **Reconstruct** parametrically with the *original* spec using `cadre.parametric`.
-3. **Prove equivalence** before changing anything:
+3. **Check geometric equivalence** before changing anything:
    ```bash
    uv run python -m cadre.cli equiv original.stl reconstructed.stl --fail-on-non-equivalent
    # exits non-zero unless verdict.equivalent is true
    # default thresholds: bbox ≤0.5mm, surface max ≤0.5mm, vol ≤2%
    ```
-4. **Swap the parameter** (new `Envelope`/spec) and re-export STEP/STL.
+   This is a tolerance check using sampled surfaces, not an exhaustive proof of
+   every feature. Also check topology and the declared preservation constraints.
+4. **Swap the parameter** (new `Envelope`/spec) only after the gate passes, and
+   re-export STEP/STL. Diagnostic prototypes must remain labelled as unvalidated;
+   exporting one must not turn a failed gate into success.
 5. **Interference-check** the new envelope proxy against neighbours.
 
 See `references/workflow.md` for the full procedure and `references/servo_specs.md`

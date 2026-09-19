@@ -41,6 +41,12 @@ replace the upstream gate: **unchanged regions must remain unchanged**.
 | 4 Interference | Check the new envelope proxy against neighbours | `cadre.parametric.envelope_proxy` + boolean | no overlap with adjacent links |
 | 5 Print check | Wall thickness, screw seats, axis alignment | `stl_geometry_probe` + manual | physical fit on the bench |
 
+Stage 0 must distinguish concave bores from convex outside profiles. The legacy
+`hole_families` summary mixes both and removes axial position. Use surface sense,
+axial ranges, and entry/floor checks from `geometry-review.md`; family agreement
+does not replace Stage 2. Diagnostic exports after a failed gate must be explicitly
+labelled as prototypes and keep a failed status/exit code.
+
 If Stage 2 fails on an organic part, do not keep adding local tests until the
 new model looks "good enough". Switch to local B-rep editing or mark the part as
 not safely reconstructable by this workflow.
@@ -66,10 +72,10 @@ uv run python studies/xl430_lowcost/validate_extension_preservation.py
 | 4 | ~10 mm | — | 1 | 2 | X | horn / idler shaft bore |
 
 `axes` = distinct axis lines (sign-normalised, face-splitting collapsed); `faces`
-= raw cylindrical faces. **One axis line may be a single through-hole OR two
-coaxial blind holes on opposing walls — cylinder geometry alone can't decide, so
-the physical hole count is in `[axes, faces]`.** These families ARE the parametric
-drivers. Re-creating the part means parameterising: `motor_face_hole_pattern`,
+= raw cylindrical faces. These are not counts of verified holes. Outside profiles
+and separated coaxial features can share the same summary. Resolve material side,
+axial extents and openings before treating a family as a parametric driver.
+Re-creating the part means parameterising: `motor_face_hole_pattern`,
 `hole_diameter`, `body_bore`, `horn_bore`, `axis_spacing`, `link_length`, `wall`.
 
 ## Mapping the drivers to a servo swap

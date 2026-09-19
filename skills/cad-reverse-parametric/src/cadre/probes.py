@@ -10,6 +10,7 @@ any domain. The XL430 study supplies a Dynamixel policy; nothing is hard-coded.
 """
 from __future__ import annotations
 import re
+import math
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -123,9 +124,10 @@ def group_cylinder_holes(cylinders: list[dict],
                   collapsing the arbitrary B-rep sign and any face splitting.
       - `faces` : raw cylindrical-face tally (transparency).
 
-    NOTE: one axis line may be a single through-hole OR two coaxial blind holes on
-    opposing walls — cylinder geometry alone cannot tell them apart. So physical
-    hole count lies in [axes, faces]; resolve it from intent/solid analysis.
+    This legacy grouping includes convex outside profiles as well as concave
+    bores. Neither face counts nor axis-line counts establish a physical hole
+    count, blind/through status, or thread function. Inspect surface sense and
+    axial extents, then confirm openings/material on the solid.
     """
     axes: dict[tuple, dict] = {}
     for c in cylinders:
@@ -168,6 +170,7 @@ def _raw_cylinders(solids, screw_bands) -> tuple[list[dict], int, int]:
     """Per-face cylinders with ABSOLUTE axis points (placement-truth, not collapsed)."""
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
+    from OCP.TopAbs import TopAbs_FORWARD, TopAbs_REVERSED
     cylinders, planes, faces = [], 0, 0
     for solid in solids:
         for face in solid.Faces():
@@ -179,13 +182,42 @@ def _raw_cylinders(solids, screw_bands) -> tuple[list[dict], int, int]:
             elif t == GeomAbs_Cylinder:
                 cyl = ad.Cylinder(); loc = cyl.Axis().Location(); d = cyl.Axis().Direction()
                 r = float(cyl.Radius())
+                # For an outward-oriented solid, a reversed cylindrical face
+                # bounds a concavity; a forward face is an external profile.
+                sense = {TopAbs_FORWARD: "convex", TopAbs_REVERSED: "concave"}.get(
+                    face.wrapped.Orientation(), "unknown")
+                direction = (d.X(), d.Y(), d.Z())
+                if next((value for value in direction if abs(value) > 1e-6), 1) < 0:
+                    direction = tuple(-value for value in direction)
+                mid_u = (ad.FirstUParameter() + ad.LastUParameter()) / 2
+                axial = []
+                for v in (ad.FirstVParameter(), ad.LastVParameter()):
+                    p = ad.Value(mid_u, v)
+                    axial.append(sum(a * b for a, b in zip(
+                        (p.X(), p.Y(), p.Z()), direction)))
                 cylinders.append({
                     "radius": round(r, 3), "diameter": round(2 * r, 3),
                     "axis_dir": _round3((d.X(), d.Y(), d.Z())),
                     "axis_pt": _round3((loc.X(), loc.Y(), loc.Z())),
                     "screw": classify_screw(2 * r, screw_bands),
+                    "surface_sense": sense,
+                    "axial_range_mm": _round3(sorted(axial)),
+                    "angular_span_deg": round(math.degrees(
+                        ad.LastUParameter() - ad.FirstUParameter()), 3),
                 })
     return cylinders, faces, planes
+
+
+def _family_views(cylinders, screw_bands) -> dict:
+    return {
+        # Kept for existing consumers; it is not a list of verified holes.
+        "hole_families": group_cylinder_holes(cylinders, screw_bands),
+        "hole_families_semantics": "legacy_all_cylindrical_surfaces",
+        "bore_families": group_cylinder_holes(
+            [c for c in cylinders if c["surface_sense"] == "concave"], screw_bands),
+        "outer_cylinder_families": group_cylinder_holes(
+            [c for c in cylinders if c["surface_sense"] == "convex"], screw_bands),
+    }
 
 
 def brep_probe(path: Path, screw_bands=DEFAULT_SCREW_BANDS) -> dict:
@@ -195,7 +227,7 @@ def brep_probe(path: Path, screw_bands=DEFAULT_SCREW_BANDS) -> dict:
     if not solids:                       # surface-only STEP — degrade, don't crash
         return {"file": str(path), "name": Path(path).stem, "available": True,
                 "solids": 0, "faces": 0, "planes": 0, "cylindrical_faces": 0,
-                "bbox_mm": None, "hole_families": []}
+                "bbox_mm": None, **_family_views([], screw_bands)}
     cylinders, faces, planes = _raw_cylinders(solids, screw_bands)
     bb = _bbox_minmax(solids)
     return {
@@ -203,28 +235,32 @@ def brep_probe(path: Path, screw_bands=DEFAULT_SCREW_BANDS) -> dict:
         "solids": len(solids), "faces": faces, "planes": planes,
         "cylindrical_faces": len(cylinders),
         "bbox_mm": [bb["xlen"], bb["ylen"], bb["zlen"]],
-        "hole_families": group_cylinder_holes(cylinders, screw_bands),
+        **_family_views(cylinders, screw_bands),
     }
 
 
 def cylinder_faces(path: Path, screw_bands=DEFAULT_SCREW_BANDS) -> dict:
-    """Inspection view: bbox (min/max), every cylindrical face with its ABSOLUTE
-    center, plus the collapsed family summary. Use this to answer placement
-    questions ('is the bolt hole on the frame?') that the canonicalized
-    `hole_families` centers cannot, without writing a one-off script."""
+    """Inspect cylindrical face sense, axial spans, and grouped axis lines.
+
+    axis_pt is a reference point on the unbounded cylinder axis, not a face
+    center. axial_range_mm locates the trimmed face along the canonical unit
+    axis relative to the global origin; angular_span_deg exposes partial arcs.
+    Legacy hole_families includes both inside and outside surfaces.
+    """
     if not brep_available():
         return {"file": str(path), "name": Path(path).stem, "available": False}
     solids = _open_solids(path)
     if not solids:
         return {"file": str(path), "name": Path(path).stem, "available": True,
-                "solids": 0, "bbox": None, "cylinders": [], "hole_families": []}
+                "solids": 0, "bbox": None, "cylinders": [],
+                **_family_views([], screw_bands)}
     cylinders, faces, planes = _raw_cylinders(solids, screw_bands)
     return {
         "file": str(path), "name": Path(path).stem, "available": True,
         "solids": len(solids), "faces": faces, "planes": planes,
         "bbox": _bbox_minmax(solids),
         "cylinders": sorted(cylinders, key=lambda c: (c["diameter"], c["axis_pt"])),
-        "hole_families": group_cylinder_holes(cylinders, screw_bands),
+        **_family_views(cylinders, screw_bands),
     }
 
 

@@ -70,9 +70,10 @@ playwright-cli screenshot --filename=rotated.png
 
 ## Structured (DOM) inspection via playwright-cli
 
-The 3D shapes live in canvas/WASM (not the DOM) and chili3d exposes no `window`
-app handle, so `eval` only reaches the **UI chrome** (the Items tree, ribbon,
-properties). For geometry, use the B-rep probe on the STEP instead.
+The 3D shapes live in canvas/WASM, not in ordinary DOM text. Inspect the Items
+tree, ribbon and properties to verify loading. The local `view-gizmo` custom
+element also exposes camera state (see below); that can verify view orientation,
+but does not establish solid geometry. Use the B-rep probe for geometry.
 
 **eval gotcha + robust form.** `playwright-cli eval "<expr>"` misparses any bare
 expression that contains an arrow `=>` (e.g. `.map(x => x)`) as a function and
@@ -89,8 +90,8 @@ playwright-cli eval "() => { const L=document.body.innerText.split(String.fromCh
 ```
 
 Rule of thumb: pass `() => (<expression>)` (or `() => { ...; return x; }`); use
-`String.fromCharCode(10)` instead of a literal `\n` in the shell; check
-`() => Object.keys(window)` first (it's `[]` here — no exposed app handle).
+`String.fromCharCode(10)` instead of a literal `\n` in the shell. Inspect the
+actual DOM/custom elements before assuming that an application handle is exposed.
 
 **Use a dedicated session.** The shared `default` session can collide with other
 projects' browsers — drive chili3d with `playwright-cli -s=chili ...`.
@@ -117,3 +118,53 @@ not a defect.
 Closes the reconstruction loop: build a parametric STEP with `cadre.parametric`
 → drop it in `chili3d/public/` → eyeball it (and the original) in chili3d
 alongside the numeric `cadre.cli equiv` gate. See also `workflow.md`.
+
+## Review-session lessons (2026-09-18)
+
+For the local installation, use a named session (for example
+`playwright-cli -s=cadre-review open <url> --headed`) and keep source/before/after
+models in separate tabs. Resize first, then click the `Fit Content` image control;
+the default narrow viewport can clip a correctly imported model. Wait for the
+specific model entry in the Items tree before inspecting the canvas. Gizmo click
+coordinates depend on viewport size and current camera direction. Set the viewport
+on **each page**; a resize on one tab does not establish the other tabs' dimensions.
+Do not reuse absolute click coordinates across tabs.
+
+The local v0.7.0-beta exposes `view-gizmo._axes` and `cameraController`. After
+confirming those fields against `packages/three/src/viewGizmo.ts`, this code inside
+`playwright-cli run-code` locates the current +Y bubble and verifies the resulting
+camera direction. These are internal fields, so re-check them after viewer updates.
+
+```javascript
+async page => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.keyboard.press("Escape");
+  await page.getByRole("img", { name: "Fit Content", exact: true }).click();
+  const axis = "y"; // Repeat with x/z, recomputing the bubble location each time.
+  const pt = await page.evaluate(axis => {
+    const g = document.querySelector("view-gizmo");
+    const c = g.querySelector("canvas"), r = c.getBoundingClientRect();
+    const a = g._axes.find(a => a.axis === axis);
+    return { x: r.x + a.position.x * r.width / c.width,
+             y: r.y + a.position.y * r.height / c.height };
+  }, axis);
+  await page.mouse.move(pt.x, pt.y);
+  await page.waitForFunction(axis =>
+    document.querySelector("view-gizmo")._selectedAxis?.axis === axis, axis);
+  await page.mouse.click(pt.x, pt.y);
+  await page.waitForFunction(axis => {
+    const g = document.querySelector("view-gizmo");
+    const v = g.cameraController.camera.position.clone()
+      .sub(g.cameraController.target).normalize();
+    return v[axis] > 0.999;
+  }, axis);
+}
+```
+
+The CLI's `run-code` sandbox may not expose browser globals such as `URL`.
+Evaluate URL parsing inside `page.evaluate`, where browser globals are available.
+
+In this review, an apparent phi18.124 "seat" was actually the rounded OUTSIDE of
+the source's two tabs. A `circle`/`cylinder` adjacency or a displayed diameter does
+not establish a bore: inspect `surface_sense` and `axial_range_mm` in the STEP
+probe, and check material/void on the solid. See `geometry-review.md`.

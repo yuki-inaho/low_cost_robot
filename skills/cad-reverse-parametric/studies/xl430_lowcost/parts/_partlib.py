@@ -34,10 +34,13 @@ def blind_seat(solid: cq.Workplane, center, diameter: float, depth: float,
     `axis`. `into` is the sign of the cut direction (the body side): -1 cuts toward
     -axis (face on the +axis side, e.g. Y=42 wall), +1 cuts toward +axis (face on the
     -axis side, e.g. a Z=0 bottom face with the body above). `center` is a 3-tuple;
-    its axis coordinate is ignored. Stays blind, never breaching the cavity."""
+    its axis coordinate is ignored. The caller must ensure sufficient material
+    behind the requested depth; this cutter cannot guarantee residual thickness."""
     cx, cy, cz = center
     plane = _PLANE[axis]
-    tool = cq.Workplane(plane).circle(diameter / 2).extrude(into * depth)
+    # XZ has a -Y normal; `into` describes the world axis, not the plane normal.
+    normal_sign = -1 if axis == "Y" else 1
+    tool = cq.Workplane(plane).circle(diameter / 2).extrude(normal_sign * into * depth)
     # place the tool's workplane origin on the face
     off = {"X": (face, cy, cz), "Y": (cx, face, cz), "Z": (cx, cy, face)}[axis]
     return solid.cut(tool.translate(off))
