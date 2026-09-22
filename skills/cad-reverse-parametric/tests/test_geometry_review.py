@@ -73,6 +73,48 @@ def test_original_elbow_round_top_is_not_a_horn_bore():
     assert all(f["diameter"] != 18.124 for f in report["bore_families"])
 
 
+@pytest.mark.parametrize("plane", ["XY", "XZ", "YZ"])
+@pytest.mark.parametrize("height", [-3., 3.])
+def test_native_cylinder_sense_does_not_depend_on_surface_parameterization(plane, height):
+    from cadre.probes import _raw_cylinders
+    from cadre.geometry import DEFAULT_SCREW_BANDS
+    outer = cq.Workplane(plane).circle(12).extrude(height)
+    holes = cq.Workplane(plane).pushPoints([(8, 0), (0, 8), (-8, 0), (0, -8)]).circle(1).extrude(height)
+    part = outer.cut(holes).val()
+    assert part.isValid() and len(part.Solids()) == 1
+    cylinders, _, _ = _raw_cylinders([part], DEFAULT_SCREW_BANDS)
+    outside = [c for c in cylinders if c["radius"] == 12]
+    inside = [c for c in cylinders if c["radius"] == 1]
+    assert len(outside) == 1 and len(inside) == 4
+    assert all(c["surface_sense"] == "convex" for c in outside)
+    assert all(c["surface_sense"] == "concave" for c in inside)
+
+
+def test_cylinder_sense_rejects_non_cylinder():
+    from cadre.probes import cylinder_surface_sense
+    with pytest.raises(ValueError, match="cylindrical face"):
+        cylinder_surface_sense(cq.Workplane().box(1, 1, 1).val().Faces()[0])
+
+
+def test_cylinder_sense_reports_unknown_for_unusable_normal(monkeypatch):
+    from cadre.probes import cylinder_surface_sense
+    face = next(f for f in cq.Workplane().circle(1).extrude(2).val().Faces()
+                if f.geomType() == "CYLINDER")
+    monkeypatch.setattr(cq.Face, "normalAt", lambda *args: cq.Vector(0, 0, 0))
+    assert cylinder_surface_sense(face) == "unknown"
+
+
+def test_cylinder_sense_propagates_kernel_failure(monkeypatch):
+    from cadre.probes import cylinder_surface_sense
+    face = next(f for f in cq.Workplane().circle(1).extrude(2).val().Faces()
+                if f.geomType() == "CYLINDER")
+    def broken(*args):
+        raise RuntimeError("normal evaluation fixture failure")
+    monkeypatch.setattr(cq.Face, "normalAt", broken)
+    with pytest.raises(RuntimeError, match="fixture failure"):
+        cylinder_surface_sense(face)
+
+
 def test_section_measurement_rejects_buried_pocket(tmp_path):
     body = cq.Workplane("XY").box(29, 9, 31, centered=(False, False, False)).translate((0, 33, 0))
     buried = cq.Workplane("XZ").circle(9.062).extrude(4).translate((11, 38, 18.94))

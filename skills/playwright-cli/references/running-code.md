@@ -244,6 +244,30 @@ playwright-cli eval "() => {
 
 If the app renders into canvas or WebGL, a screenshot may be the only complete visual record. Pair screenshots with DOM/app-state extraction so the final report can distinguish visual evidence from structured metadata.
 
+## File Chooser Ownership
+
+Use one mechanism to handle each file chooser. With CLI commands, click the
+observed import control, wait for the reported chooser, then use `upload`:
+
+```bash
+playwright-cli -s=review click e42
+playwright-cli -s=review upload /absolute/path/to/document.ext
+```
+
+Do not also call `fileChooser.setFiles` inside `run-code` for that same chooser.
+The CLI may surface a modal while the custom callback is still pending; handling
+it twice can trigger duplicate change/cancel cleanup and runtime errors. Let
+each command finish before issuing another operation against the same modal.
+Wait for the expected imported item, then inspect console errors and duplicate
+items before recording a screenshot. File input can avoid copying artifacts
+into a watched development-server directory that would reload another user's tab.
+
+If a click times out despite a visible target, inspect the reported intercepting
+element. A runtime-error iframe is evidence to investigate, not a reason to force
+the click. Record the error before restarting a task-owned disposable tab. Check
+for `beforeunload` and other dialogs; do not discard a user's unsaved document.
+Verify that a screenshot command completed and the file exists before inspecting it.
+
 ## Error Handling
 
 ```bash

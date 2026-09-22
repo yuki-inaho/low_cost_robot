@@ -38,7 +38,8 @@ EXISTING_XL430 = (
 )
 TARGETS = (
     ("J3", "/Robot Arm v14/XL,XC-330 v1:6", ("distal", "wrist")),
-    ("J4", "/Robot Arm v14/XL,XC-330 v1:7", ("distal",)),
+    # J4 anchors the extension's upstream axis and does not move with its distal end.
+    ("J4", "/Robot Arm v14/XL,XC-330 v1:7", ()),
     (
         "J5_GRIPPER",
         "/Robot Arm v14/gripper v9:1/XL,XC-330 v1:1",

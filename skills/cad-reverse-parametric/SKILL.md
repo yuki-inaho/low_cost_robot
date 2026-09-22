@@ -10,6 +10,7 @@ description: >-
   validated STEP/STL artifacts for a 3D-printer slicer. Triggers:
   "CAD逆エンジニアリング", "STEPをパース", "パラメトリック再構成", "CAD影響範囲",
   "穴パターン抽出", "同等性チェック", "スライサー用に整理", "印刷用G-code",
+  "工具アクセス", "締結確認", "配線干渉",
   reverse engineer a STEP, parametric CAD swap, prepare a printable CAD package.
 ---
 
@@ -181,6 +182,15 @@ part:
 uv run python studies/xl430_lowcost/validate_extension_preservation.py
 ```
 
+## Assembly, fasteners and wiring
+
+For assembly feasibility, bolt selection, tool clearance or cable routing, read
+`references/assembly-serviceability.md`. Hole alignment and a collision-free
+final pose do not prove that a part can be inserted, fastened or serviced. Keep
+thread engagement, tool motion, hand clearance, assembly order and electrical
+limits as separate evidence gates. Do not modify preserved geometry just to
+clear a guessed tool or harness envelope.
+
 ## Package validated parts for a slicer
 
 When the request includes preparing STEP files for a 3D printer, read
@@ -206,8 +216,11 @@ mounting-axis verdict from the mixed-servo baseline after replacing assembly
 occurrences. Re-import and scan the converted assembly itself. Motor inventory,
 leaf count, a readable STEP, and watertight reused meshes do not prove that the
 new motor envelopes fit the retained brackets. The current all-XL430 prototype
-has 54 post-conversion external intersections (plus 168 same-motor internal
-overlaps counted separately) and no post-conversion axis report, so it stays
+has 54 post-conversion external intersections in the original `current` run.
+The `j4-datum-20260922` placement-only correction has 46 (11 removed, 43 retained,
+3 new), plus 168 same-motor internal overlaps counted separately. Its four
+replacement rotation axes match the baseline, but seats, fasteners and retained
+brackets are not accepted. Both revisions stay
 under `outputs/all_xl430_revision/unaccepted/<run-id>/` and
 `source/study.py print-package` re-validates every time and fails closed
 (exit code 2) while any external interference or missing engineering evidence

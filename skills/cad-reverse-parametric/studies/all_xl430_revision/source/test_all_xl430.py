@@ -13,6 +13,7 @@ from pathlib import Path
 
 import cadquery as cq
 import pytest
+from OCP.BRepAdaptor import BRepAdaptor_Surface
 
 SOURCE_DIR = Path(__file__).resolve().parent
 STUDY_DIR = SOURCE_DIR.parent
@@ -291,6 +292,88 @@ def test_generator_is_import_safe():
 
     assert callable(build_all_xl430.generate_candidate)
     assert not (STUDY_DIR / "unaccepted/missing_test_run").exists()
+
+
+REPLACEMENT_OCCURRENCES = (
+    ("J3", "/Robot Arm v14/XL,XC-330 v1:6"),
+    ("J4", "/Robot Arm v14/XL,XC-330 v1:7"),
+    ("J5_GRIPPER", "/Robot Arm v14/gripper v9:1/XL,XC-330 v1:1"),
+    ("J6", "/Robot Arm v14/XL,XC-330 v1:8"),
+)
+
+
+@pytest.fixture(scope="module")
+def real_prototype():
+    from build_all_xl430 import build_prototype
+
+    return build_prototype()
+
+
+def _idler_axis(shape, outer_radius):
+    cylinders = [BRepAdaptor_Surface(f.wrapped).Cylinder()
+                 for f in shape.Faces() if f.geomType() == "CYLINDER"]
+    outer = [c for c in cylinders if abs(c.Radius()-outer_radius) < 1e-5]
+    assert outer, "Missing dedicated idler outside cylinder"
+    axis = outer[0].Axis()
+    point = cq.Vector(axis.Location().X(), axis.Location().Y(), axis.Location().Z())
+    direction = cq.Vector(axis.Direction().X(), axis.Direction().Y(), axis.Direction().Z())
+    return point, direction
+
+
+@pytest.mark.parametrize("tag,path", REPLACEMENT_OCCURRENCES)
+def test_replacement_axis_preserves_actual_baseline_idler(real_prototype, tag, path):
+    baseline = real_prototype.baseline
+    originals = [r for r in baseline.original if r.path.startswith(path+"/")
+                 and r.name == "DC15_A01_HORN_IDLE2_DUMMY:1"]
+    assert len(originals) == 1
+    original = originals[0]
+    old_shape = original.shape.moved(baseline.revised_locations[original.index])
+    replacement = real_prototype.assembly.objects[tag+"_XL430_07_DC11_A01_IDLER_DUMMY_1"]
+    new_shape = replacement.obj.moved(replacement.loc)
+    old_point, old_direction = _idler_axis(old_shape, 8.0)
+    new_point, new_direction = _idler_axis(new_shape, 10.25)
+    assert abs(old_direction.dot(new_direction)) == pytest.approx(1, abs=1e-8)
+    displacement = new_point-old_point
+    radial = displacement-old_direction*displacement.dot(old_direction)
+    assert radial.Length < 1e-5, f"{tag}: radial axis error {radial.Length} mm"
+
+
+@pytest.mark.parametrize("tag,path", REPLACEMENT_OCCURRENCES)
+def test_replacement_leaf_placement_and_shape_match_baseline(real_prototype, tag, path):
+    from build_all_xl430 import REFERENCE_XL430, read_assembly_nodes
+    from common import REFERENCE_DIR
+
+    baseline = real_prototype.baseline
+    nodes = read_assembly_nodes(REFERENCE_DIR / "arm.step")
+    originals = [r for r in baseline.original if r.path.startswith(path+"/")]
+    assert len(originals) == 21
+    # Infer the module movement from the baseline leaves, not TARGETS' shift list.
+    moves = [baseline.revised_locations[r.index]*r.loc.inverse for r in originals]
+    reference_rows = {r.path: r for r in baseline.original}
+    replacements = [m for m in real_prototype.manifest if m.get("target_occurrence") == path]
+    assert len(replacements) == 35
+    for move in moves:
+        expected_top = move*nodes[path]
+        for item in replacements:
+            donor = reference_rows[item["reference_leaf"]]
+            expected = expected_top*nodes[REFERENCE_XL430].inverse*donor.loc
+            actual = real_prototype.assembly.objects[item["name"]]
+            assert actual.obj.isSame(donor.shape), "Replacement reshaped a supplier part"
+            a, b = actual.loc.wrapped.Transformation(), expected.wrapped.Transformation()
+            assert [a.Value(i,j) for i in range(1,4) for j in range(1,5)] == pytest.approx(
+                [b.Value(i,j) for i in range(1,4) for j in range(1,5)], abs=1e-8
+            ), f"{tag}: incorrect placement for {item['name']}"
+
+
+def test_replacement_keeps_all_other_geometry_and_locations(real_prototype):
+    assert len(real_prototype.manifest) == 217
+    kept = [m for m in real_prototype.manifest if m["action"] == "kept_from_geometry_revision"]
+    assert len(kept) == 77
+    for item in kept:
+        index = item["source_index"]
+        actual = real_prototype.assembly.objects[item["name"]]
+        assert actual.obj.isSame(real_prototype.baseline.revised_shapes[index])
+        assert actual.loc.toTuple() == real_prototype.baseline.revised_locations[index].toTuple()
 
 
 def test_extra_unvalidated_part_file_blocks_inventory(tmp_path):

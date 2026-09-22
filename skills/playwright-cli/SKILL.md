@@ -208,9 +208,9 @@ playwright-cli -s=mysession close  # stop a named browser
 playwright-cli -s=mysession delete-data  # delete user data for persistent session
 
 playwright-cli list
-# Close all browsers
+# Close all browsers only when explicitly authorized; this affects other tasks
 playwright-cli close-all
-# Forcefully kill all browser processes
+# Forcefully kill all browser processes only when explicitly authorized
 playwright-cli kill-all
 ```
 
@@ -247,6 +247,13 @@ For WebGL, canvas, CAD, map, editor, and other stateful apps, DOM text alone is 
 - `screenshot` when visual state is the only visible evidence
 
 Always report which source of truth was used: normal DOM, app-specific state, browser console/network logs, or visual screenshot. Treat an empty DOM selection as inconclusive until app state has also been checked.
+
+For independent unattended validation, use a separate named headless session and
+verify its mode with `list`; do not reuse a human-operated session. The separate
+session does not inherit the user's selection or unsaved state. See
+[session management](references/session-management.md) for isolation and cleanup,
+and [running code](references/running-code.md#file-chooser-ownership) for reliable
+local-file import without double-handling the chooser.
 
 ## Local installation
 

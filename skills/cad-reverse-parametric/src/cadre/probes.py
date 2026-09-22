@@ -166,11 +166,47 @@ def _bbox_minmax(solids) -> dict:
             "xlen": round(bb.xlen, 3), "ylen": round(bb.ylen, 3), "zlen": round(bb.zlen, 3)}
 
 
+def cylinder_surface_sense(face) -> str:
+    """Classify a cylindrical face using its oriented material normal.
+
+    Assumes an outward-oriented solid. A topology orientation flag alone is
+    insufficient because the surface parameterization can have either handedness.
+    This says nothing about a feature's mounting or threaded function.
+    """
+    import cadquery as cq
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Cylinder
+
+    surface = BRepAdaptor_Surface(face.wrapped)
+    if surface.GetType() != GeomAbs_Cylinder:
+        raise ValueError("cylinder_surface_sense requires a cylindrical face")
+    uv = ((surface.FirstUParameter() + surface.LastUParameter()) / 2,
+          (surface.FirstVParameter() + surface.LastVParameter()) / 2)
+    if not all(math.isfinite(v) for v in uv):
+        return "unknown"
+    cylinder = surface.Cylinder()
+    p, d = cylinder.Location(), cylinder.Axis().Direction()
+    sample = surface.Value(*uv)
+    point = cq.Vector(sample.X(), sample.Y(), sample.Z())
+    axis = cq.Vector(d.X(), d.Y(), d.Z())
+    delta = point - cq.Vector(p.X(), p.Y(), p.Z())
+    radial = delta - axis.multiply(delta.dot(axis))
+    if radial.Length <= 0:
+        return "unknown"
+    dot = face.normalAt(point).dot(radial.normalized())
+    if not math.isfinite(dot):
+        return "unknown"
+    if dot > 1 - 1e-7:
+        return "convex"
+    if dot < -1 + 1e-7:
+        return "concave"
+    return "unknown"
+
+
 def _raw_cylinders(solids, screw_bands) -> tuple[list[dict], int, int]:
     """Per-face cylinders with ABSOLUTE axis points (placement-truth, not collapsed)."""
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
-    from OCP.TopAbs import TopAbs_FORWARD, TopAbs_REVERSED
     cylinders, planes, faces = [], 0, 0
     for solid in solids:
         for face in solid.Faces():
@@ -182,10 +218,7 @@ def _raw_cylinders(solids, screw_bands) -> tuple[list[dict], int, int]:
             elif t == GeomAbs_Cylinder:
                 cyl = ad.Cylinder(); loc = cyl.Axis().Location(); d = cyl.Axis().Direction()
                 r = float(cyl.Radius())
-                # For an outward-oriented solid, a reversed cylindrical face
-                # bounds a concavity; a forward face is an external profile.
-                sense = {TopAbs_FORWARD: "convex", TopAbs_REVERSED: "concave"}.get(
-                    face.wrapped.Orientation(), "unknown")
+                sense = cylinder_surface_sense(face)
                 direction = (d.X(), d.Y(), d.Z())
                 if next((value for value in direction if abs(value) > 1e-6), 1) < 0:
                     direction = tuple(-value for value in direction)

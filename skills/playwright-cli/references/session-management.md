@@ -221,19 +221,26 @@ playwright-cli -s=docs-scrape open https://docs.example.com
 playwright-cli -s=s1 open https://github.com
 ```
 
-### 2. Always Clean Up
+### 2. Clean Up Only Task-Owned Sessions
 
 ```bash
 # Stop browsers when done
 playwright-cli -s=auth close
 playwright-cli -s=scrape close
 
-# Or stop all at once
+# Only with explicit authorization to close every session
 playwright-cli close-all
 
-# If browsers become unresponsive or zombie processes remain
+# Only with explicit authorization to affect other browser tasks
 playwright-cli kill-all
 ```
+
+For an independent headless review, create a separate semantic session, use a
+task-local configuration with `browser.launchOptions.headless: true` when an
+explicit override is needed, and verify `headed: false` using `list`. Keep the
+existing human-operated session unchanged. Inspect only the task session's
+artifacts and close only that session at completion. Do not change shared server
+assets or settings that trigger live reload in the human's page without approval.
 
 ### 3. Delete Stale Browser Data
 
