@@ -204,6 +204,30 @@ and the OrcaSlicer packaging work exposed gate design rules worth reusing:
   `plate_N.gcode` (part counts, warnings, macros, `M191`), not just `plate_1`; a
   helper that only checked `plate_1` mislabeled a successful 2-plate slice as failed.
 
+## Session 6 (Ender-3 Pro headless CLI slice, 2026-09-22)
+
+The first non-BBL printer job (stock Creality Ender-3 Pro, microSD delivery)
+showed that the OrcaSlicer CLI is not the GUI preset system:
+
+- **`--load-settings`/`--load-filaments` do not resolve `inherits`.** Passing an
+  extracted system preset slices with C++ defaults for every inherited key. The
+  relative-E default is `true`, so the missing inherited `before_layer_change_gcode`
+  failed validation with exit -51 (`Add "G92 E0" to layer_gcode`).
+- **The CLI loader demands preset metadata.** A flat JSON without `from`
+  (`system`/`User`/`user`) dies with `from unsupported` before slicing; `type`
+  and `name` are read too. Keep them while dropping `inherits`/`setting_id`.
+- **`compatible_printers` is a hard gate in the CLI.** The process preset list
+  must contain the machine preset name, or slicing exits -17 ("selected printer
+  is not compatible with the process preset").
+- **Offscreen slicing needs no xvfb** for this job (`QT_QPA_PLATFORM=offscreen`);
+  keep `xvfb-run` for flows that genuinely need a display.
+- **Validate the destination medium, not just the file.** Compare `sha256sum` of
+  source and SD copy, then sync before removal. Keep the card's old G-code and
+  `EEPROM.DAT` untouched.
+- Reusable resolver: `cadre.orca_presets` (`python -m cadre.orca_presets ...`)
+  with `tests/test_orca_presets.py`; procedure documented in
+  `references/orca-headless-cli.md`.
+
 ## Improvement backlog (next iterations)
 
 - [x] Design-intent layer + functional checks + LLM descriptor (intent/checks/descriptor).

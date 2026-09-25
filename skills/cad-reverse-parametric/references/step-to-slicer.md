@@ -47,6 +47,22 @@ GUIを開かずにAppImageを一時展開し、`xvfb-run`でヘッドレス実�
 
 `--export-3mf`は環境によって出力パスを二重連結して失敗してもG-codeを残すことがある。印刷パッケージの自動化では、3MF出力の成功を前提にせず、G-codeと`result.json`を個別に検証する。
 
+CLIの`--load-settings`/`--load-filaments`はプリセットの`inherits`を解決しない（GUIとの違い）。システムプリセットを直接渡すと継承キーがデフォルトに落ちるため、`cadre.orca_presets`でフラット化してから渡す。確認済みエラー番号（-51/-17）とstock Marlin向け検査項目は`orca-headless-cli.md`を参照。
+
+## 2026-09-22 Ender-3 Pro（CLI直叩き）
+
+Ender-3 Proのテスト印刷ではGUIを開かず、`QT_QPA_PLATFORM=offscreen`でAppImageをCLI実行した（xvfb-run不要）。手順は`orca-headless-cli.md`:
+
+```bash
+uv run python -m cadre.orca_presets <machine> <process> <filament> --out-dir /tmp/orca-profiles
+QT_QPA_PLATFORM=offscreen ~/Applications/OrcaSlicer.AppImage \
+  --load-settings "/tmp/orca-profiles/Creality Ender-3 Pro 0.4 nozzle.json;/tmp/orca-profiles/0.20mm Standard @Creality Ender3 Pro 0.4.json" \
+  --load-filaments "/tmp/orca-profiles/Generic PLA @System.json" \
+  --arrange 1 --ensure-on-bed --slice 0 --outputdir OUT model.stl
+```
+
+stock Marlinでは`START_PRINT`/`END_PRINT`が無いので、`G28`/`M104`/`M140`/`G92 E0`/レイヤー数と`M191`・`M600`の不在を確認する。K1C用プロファイルのチャンバー設定を持ち込まない。
+
 ## 2026-09-19フォロワー幾何改訂
 
 混在サーボ構成の改訂CADは、まず次で元STEPのハッシュ、保存後STEP、7部品のB-rep/STL、基準姿勢の干渉を検証する。
@@ -89,9 +105,10 @@ rtk uv run python prepare_print_package.py
 - OrcaSlicerの`result.json`が`return_code=0`かつ`error_string=Success.`
 - 全プレートの`EXCLUDE_OBJECT_DEFINE`を合算して期待した部品数と一致する
 - 各部品名が全プレートのG-codeに1回ずつ現れる
-- `START_PRINT`と`END_PRINT`がある
+- `START_PRINT`と`END_PRINT`がある（K1C系プロファイルの場合。stock Ender-3系は開始/終了G-codeの温度・ホーミング命令を確認する）
 - `M191`がない
 - レイヤー数、推定時間、フィラメント量を検証レポートへ残す
+- SDカード等の外部媒体へコピーした後は`sha256sum`で書き込み一致を確認し、syncしてから取り外す
 
 ## 実機確認の順序
 

@@ -202,6 +202,16 @@ K1C profile. It must not promote an old generated file when a design review has
 blocked the corresponding part. A successful G-code slice is still not evidence
 of assembly fit, strength, or safe operation.
 
+For headless CLI slicing on a non-BBL printer (e.g. a stock Ender-3 Pro
+delivering G-code on a plain SD card), remember that the CLI does not resolve
+preset `inherits`: flatten machine, process and filament first with
+`python -m cadre.orca_presets ... --out-dir DIR`, then pass the flat files to
+`--load-settings`/`--load-filaments`. The preset metadata requirements, the
+`compatible_printers` gate (exit -17), the relative-E `G92 E0` gate (exit -51)
+and the stock-Marlin G-code checks are documented in
+`references/orca-headless-cli.md`. Verify the SD copy with `sha256sum` before
+removing the card.
+
 For the mixed-servo follower geometry revision received on 2026-09-19, use
 `studies/follower_geometry_revision/README_ja.md` first. Run its
 `source/rebuild.py` against the repository's hashed `hardware/follower/step`
