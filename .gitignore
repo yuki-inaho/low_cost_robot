@@ -9,3 +9,8 @@ __pycache__/
 .playwright-cli/
 *.duckdb
 *.duckdb.wal
+
+# Local scratch: work documents, session exports, slicer and review runs
+temp/
+# OrcaSlicer CLI writes result.json into the launch directory
+/result.json
