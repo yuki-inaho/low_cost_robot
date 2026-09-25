@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Low cost robot arm with Dynamixel servos and MuJoCo simulation"
 requires-python = ">=3.10"
 dependencies = [
-    "dynamixel-sdk",
+    "dynamixel-sdk>=4.0.5",
     "numpy",
 ]
 

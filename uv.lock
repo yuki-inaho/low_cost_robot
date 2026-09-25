@@ -166,7 +166,7 @@ sim = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dynamixel-sdk" },
+    { name = "dynamixel-sdk", specifier = ">=4.0.5" },
     { name = "numpy" },
 ]
 
